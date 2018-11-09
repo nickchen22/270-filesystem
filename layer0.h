@@ -6,6 +6,7 @@
 #define DISC_UNINITIALIZED -1
 #define INVALID_BLOCK -2
 #define WRITEBUF_NULL -3
+#define READBUF_NULL -4
 
 extern uint8_t* disk;
 extern int total_blocks;
