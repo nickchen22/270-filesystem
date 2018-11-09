@@ -1,6 +1,5 @@
-#ifndef "LAYER1_H"
-#define "LAYER1_H"
-#include "stdint.h"
+#ifndef LAYER1_H
+#define LAYER1_H
 
 typedef struct superblock {
 	uint32_t ilist_block_offset;
@@ -27,7 +26,7 @@ int mkfs(int total_blocks);
 int inode_read(int inode_num, uint8_t* buffer);
 int inode_write(int inode_num, inode* modified);
 int inode_free(int inode_num);
-int inode_create(uint_t* buffer);
+int inode_create(uint8_t* buffer);
 
 int data_read();
 int data_write();
