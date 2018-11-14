@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <stdbool.h>
 
 #define BLOCK_SIZE 4096
 

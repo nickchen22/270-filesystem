@@ -1,13 +1,15 @@
 #ifndef LAYER1_H
 #define LAYER1_H
 
+#define TOTALBLOCKS_INVALID -1
+
 typedef struct superblock {
 	uint32_t ilist_block_offset;
-	uint32_t ilist_size;
+	uint32_t ilist_size; //in inodes
 	uint32_t data_block_offset;
 	uint32_t data_size;
 	uint32_t total_blocks;
-	uint32_t ilist_map_size;
+	bool* ilist_map;
 } superblock;
 
 typedef struct inode {
@@ -22,7 +24,8 @@ typedef struct inode {
 	uint32_t double_indirect;
 } inode;
 
-int mkfs(int total_blocks);
+int mkfs(int totalBlocks);
+void createSB(superblock *sb);
 
 int inode_read(int inode_num, inode* readNode);
 int inode_write(int inode_num, inode* modified);
@@ -33,5 +36,7 @@ int data_read(int data_block_num, uint8_t* readBuf);
 int data_write(int data_block_num, uint8_t* writeBuf);
 int date_free(int data_block_num);
 int data_create(uint8_t* newData, int* data_block_num);
+
+superblock* sb;
 
 #endif

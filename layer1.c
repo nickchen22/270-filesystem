@@ -18,8 +18,28 @@
 		- Adjustment: too many blocks, not enough room on disk
 		- Success
 */
-int mkfs(int total_blocks) {
+int mkfs(int totalBlocks) {
+	if (totalBlocks <= 1) {
+		ERR(fprintf(stderr, "ERR: mkfs: totalBlocks is invalid\n"));
+		ERR(fprintf(stderr, "  totalBlocks: %d\n", totalBlocks));
+		return TOTALBLOCKS_INVALID;
+	}
+	total_blocks = totalBlocks;
+	disk = (uint8_t*)malloc(totalBlocks * BLOCK_SIZE);
+	sb = (superblock*)malloc(sizeof(superblock));
+	createSB(sb);
 
+	return SUCCESS;
+}
+
+// Create superblock helper function
+void createSB(superblock *sb) {
+	sb->ilist_block_offset = 1;
+	sb->ilist_size = 10;
+	sb->data_block_offset = ((int) ceil(sb->ilist_size * sizeof(inode) / BLOCK_SIZE) ) + 1;
+	sb->data_size = total_blocks - sb->data_block_offset;
+	sb->total_blocks = total_blocks;
+	sb->ilist_map = (bool*)malloc(sizeof(bool) * sb->ilist_size);
 }
 
 /*
