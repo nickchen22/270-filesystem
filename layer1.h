@@ -2,6 +2,8 @@
 #define LAYER1_H
 
 #define TOTALBLOCKS_INVALID -1
+#define READNODE_NULL -2
+#define INODE_NUM_OUT_OF_RANGE -3
 
 typedef struct superblock {
 	uint32_t ilist_block_offset;
