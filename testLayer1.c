@@ -5,7 +5,12 @@
 int main(int argc, const char **argv){
 	printf("Hello World\n");
 	
-	mkfs(78978);
+	mkfs(1139);
+	
+	inode test;
+	inode_free(34);
+	
+	
 	
 	//total_blocks = 5;
 	//disk = malloc(BLOCK_SIZE * 5);

@@ -2,25 +2,6 @@
 #include "layer1.h"
 #include "layer0.h"
 
-/* The minimum number of blocks we can possibly make a valid FS on */
-#define MIN_IBITMAP 1
-#define MIN_INODES 1
-#define MIN_DATA 1
-#define MIN_BLOCKS (SUPERBLOCK_SIZE + MIN_IBITMAP + MIN_INODES + MIN_DATA)
-
-/* The rough percentage of non-superblock blocks to use for i-nodes */
-#define INODES_PERCENT 0.1
-
-/* Size of the superblock, in blocks */
-#define SUPERBLOCK_SIZE ((int)ceil(sizeof(superblock) / (double)BLOCK_SIZE))
-
-#define INODES_PER_BLOCK (BLOCK_SIZE / sizeof(inode))
-
-#define BITS_PER_BLOCK (BLOCK_SIZE * 8)
-
-#define ROOT_INODE 1
-#define ROOT_FREELIST 1
-
 /* 
 	Initiliazes filesystem by allocating a buffer of size
 	blocks * BLOCK_SIZE. Assigns disk to point to the
@@ -75,6 +56,35 @@ int mkfs(int blocks){
 	DEBUG(DB_MKFS, printf("  total_blocks: %d\n", total_blocks));
 	/************************ CREATE IN-MEMORY DISK ************************/
 	
+	/* Initialize the superblock */
+	init_superblock(blocks);
+	
+	/* Initialize the free list */
+	init_freelist();
+	
+	//TODO: these things
+	/* Initialize the ibitmap to 0s */
+	
+	/* Create the root directory data */
+	
+	/* Create the root inode */
+
+	return SUCCESS;
+}
+
+/* Initializes the superblock given a valid number of blocks for
+ * the filesystem to be created on
+ *
+ * This function is called during mkfs and is not really
+ * intended for normal use. It requires that blocks be a valid
+ * input
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   SUCCESS            - superblock was created
+ */
+int init_superblock(int blocks){
+
 	/* Summon math demons to calculate sizes of each part of the filesystem for us */
 	int total_iblocks = MAX(MIN_IBITMAP + MIN_INODES, (int)ceil(blocks * INODES_PERCENT));
 	int data_blocks = blocks - SUPERBLOCK_SIZE - total_iblocks;
@@ -96,76 +106,260 @@ int mkfs(int blocks){
 	DEBUG(DB_MKFS, printf("  ibitmap_blocks:                %d\n", ibitmap_blocks));
 	DEBUG(DB_MKFS, printf("  inode_blocks:                  %d\n", inode_blocks));
 	
-	/* TODO: have to use writeblock lol whoops */
-	superblock* sb = (superblock*)disk;
-	sb->ibitmap_block_offset = SUPERBLOCK_SIZE;
-	sb->ibitmap_size = ibitmap_blocks;
+	/* Initialize fields of superblock */
+	superblock sb;
+	sb.ibitmap_block_offset = SUPERBLOCK_SIZE;
+	sb.ibitmap_size = ibitmap_blocks;
 	
-	sb->ilist_block_offset = SUPERBLOCK_SIZE + ibitmap_blocks;
-	sb->ilist_size = inode_blocks;
+	sb.ilist_block_offset = SUPERBLOCK_SIZE + ibitmap_blocks;
+	sb.ilist_size = inode_blocks;
 	
-	sb->data_block_offset = SUPERBLOCK_SIZE + ibitmap_blocks + inode_blocks;
-	sb->data_size = data_blocks;
+	sb.data_block_offset = SUPERBLOCK_SIZE + ibitmap_blocks + inode_blocks;
+	sb.data_size = data_blocks;
 	
-	sb->total_blocks = blocks;
-	sb->total_inodes = inode_blocks * INODES_PER_BLOCK;
+	sb.total_blocks = blocks;
+	sb.total_inodes = inode_blocks * INODES_PER_BLOCK;
 	
-	sb->free_list_head = ROOT_FREELIST;
-	sb->root_inode = ROOT_INODE;
+	sb.free_list_head = ROOT_FREELIST;
+	sb.root_inode = ROOT_INODE;
 	
-	sb->block_size = BLOCK_SIZE;
-	sb->inodes_per_block = INODES_PER_BLOCK;
-	
-	/* create root inode, initialize ibitmap */
-	
-	/* create root directory? */
-	
-	/* initialize free list */
-	
-	freelist_node a;
-	data_read(1, (uint8_t*)&a);
+	sb.block_size = BLOCK_SIZE;
+	sb.inodes_per_block = INODES_PER_BLOCK;
+	sb.num_inodes = inode_blocks * INODES_PER_BLOCK;
 
+	return write_superblock(&sb);
+}
+
+/* Initializes the freelist into the data blocks, given their length
+ *
+ * This function is called during mkfs and is not really
+ * intended for normal use. It requires that the filesystem has
+ * at least a valid superblock
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   SUCCESS            - freelist was created
+ */
+int init_freelist(){
+	superblock sb;
+
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: create_freelist: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	int num_data_blocks = sb.data_size;
+	freelist_node cur;
+	int node_loc, next_loc, i, j;
+	
+	int blocks_per_node = ADDR_PER_NODE + 1;
+	int num_nodes = (int)ceil((double)num_data_blocks / blocks_per_node);
+	
+	DEBUG(DB_FREELIST, printf("DEBUG: create_freelist: about to begin\n"));
+	DEBUG(DB_FREELIST, printf("  num_data_blocks: %d\n", num_data_blocks));
+	DEBUG(DB_FREELIST, printf("  blocks_per_node: %d\n", blocks_per_node));
+	DEBUG(DB_FREELIST, printf("  num_nodes:       %d\n\n", num_nodes));
+	
+	/* Create a node and populate it */
+	for (i = 0; i < num_nodes; i++){
+		node_loc = (i * blocks_per_node) + 1;
+		memset(&cur, INVALID_DATA, sizeof(freelist_node));
+		
+		DEBUG(DB_FREELIST, printf("Building node at location: %d\n", node_loc));
+		
+		/* Populate it with its free blocks */
+		for (j = 0; j < ADDR_PER_NODE && node_loc + j + 1 <= num_data_blocks; j++){
+			cur.addr[j] = node_loc + j + 1;
+			
+			DEBUG(DB_FREELIST, printf("  addr[%d]: %d\n", j, node_loc + j + 1));
+		}
+		
+		/* If there's room for another node after it, link it to the next one */
+		next_loc = ((i + 1) * blocks_per_node) + 1; //TODO: make sure this works for weird blocksizes
+		if (next_loc <= num_data_blocks){
+			cur.next = next_loc;
+		}
+		
+		DEBUG(DB_FREELIST, printf("  next_loc: %d\n", cur.next));
+		
+		/* Write the node */
+		if (data_write(node_loc, (uint8_t*)&cur) != SUCCESS){
+			return DISC_UNINITIALIZED;
+		}
+	}
+	
 	return SUCCESS;
 }
 
-/*
-	Reads the inode from the index inode_num in the ilist and
-	passes it by reference to the address readNode.
+/* Reads the specified inode into readNode, a buffer of size sizeof(inode)
+ *
+ * Note that inodes are 1-indexed. 1 is the first inode,
+ * and 0 is not a valid inode
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   BAD_INODE      - not a valid inode in this fs
+ *   BUF_NULL           - readNode is null
+ *   SUCCESS            - block was read
+ */
+int inode_read(int inode_num, inode* readNode){
+	superblock sb;
 
-	Returns:
-		- Error: FS uninitialized
-		- readNode is null
-		- inode_num out of range
-		- inode_num not allocated?
-*/
-int inode_read(int inode_num, inode* readNode) {
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: inode_read: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	if (readNode == NULL){
+		ERR(fprintf(stderr, "ERR: inode_read: readNode is null\n"));
+		ERR(fprintf(stderr, "  readNode: %p\n", readNode));
+		return BUF_NULL;
+	}
+	
+	if (inode_num <= 0 || inode_num > sb.num_inodes){
+		ERR(fprintf(stderr, "ERR: inode_read: inode_num invalid\n"));
+		ERR(fprintf(stderr, "  inode_num:       %d\n", inode_num));
+		ERR(fprintf(stderr, "  min (exclusive): %d\n", 0));
+		ERR(fprintf(stderr, "  max (inclusive): %d\n", sb.num_inodes));
+		return BAD_INODE;
+	}
+	
+	int inode_block_num = (inode_num - 1) / INODES_PER_BLOCK;
+	int inode_in_block = (inode_num - 1) % INODES_PER_BLOCK;
 
+	int total_block_offset = sb.ilist_block_offset + inode_block_num;
+	
+	iblock block;
+	readBlock(total_block_offset, (uint8_t*)&block);
+
+	DEBUG(DB_INODEREAD, printf("DEBUG: inode_read: reading an inode\n"));
+	DEBUG(DB_INODEREAD, printf("  inode_num:                     %d\n", inode_num));
+	DEBUG(DB_INODEREAD, printf("  INODES_PER_BLOCK:              %d\n", INODES_PER_BLOCK));
+	DEBUG(DB_INODEREAD, printf("  inode_block_num:               %d\n", inode_block_num));
+	DEBUG(DB_INODEREAD, printf("  inode_in_block:                %d\n", inode_in_block));
+	DEBUG(DB_INODEREAD, printf("  total_block_offset:            %d\n", total_block_offset));
+	DEBUG(DB_INODEREAD, printf("  &block:                        %p\n", &block));
+	DEBUG(DB_INODEREAD, printf("  &block.inodes[inode_in_block]: %p\n", &block.inodes[inode_in_block]));
+	
+	memcpy(readNode, &block.inodes[inode_in_block], sizeof(inode));
+	
+	return SUCCESS;
 }
 
-/*
-	Writes an inode to the index inode_num in the ilist and
-	passes the new inode to the address modified.
+/* Writes modified, a buffer of size sizeof(inode), into the inode located
+ * in position inode_num
+ *
+ * Note that inodes are 1-indexed. 1 is the first inode,
+ * and 0 is not a valid inode
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   BAD_INODE      - not a valid inode in this fs
+ *   BUF_NULL           - readNode is null
+ *   SUCCESS            - block was read
+ */
+int inode_write(int inode_num, inode* modified){
+	superblock sb;
 
-	Returns:
-		- FS uninitialized
-		- modified is null
-		- inode_num out of range
-*/
-int inode_write(int inode_num, inode* modified) {
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: inode_write: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	if (modified == NULL){
+		ERR(fprintf(stderr, "ERR: inode_write: modified is null\n"));
+		ERR(fprintf(stderr, "  modified: %p\n", modified));
+		return BUF_NULL;
+	}
+	
+	if (inode_num <= 0 || inode_num > sb.num_inodes){
+		ERR(fprintf(stderr, "ERR: inode_write: inode_num invalid\n"));
+		ERR(fprintf(stderr, "  inode_num:       %d\n", inode_num));
+		ERR(fprintf(stderr, "  min (exclusive): %d\n", 0));
+		ERR(fprintf(stderr, "  max (inclusive): %d\n", sb.num_inodes));
+		return BAD_INODE;
+	}
+	
+	int inode_block_num = (inode_num - 1) / INODES_PER_BLOCK;
+	int inode_in_block = (inode_num - 1) % INODES_PER_BLOCK;
 
+	int total_block_offset = sb.ilist_block_offset + inode_block_num;
+	
+	iblock block;
+	readBlock(total_block_offset, (uint8_t*)&block);
+
+	DEBUG(DB_INODEWRITE, printf("DEBUG: inode_write: writing an inode\n"));
+	DEBUG(DB_INODEWRITE, printf("  inode_num:                     %d\n", inode_num));
+	DEBUG(DB_INODEWRITE, printf("  INODES_PER_BLOCK:              %d\n", INODES_PER_BLOCK));
+	DEBUG(DB_INODEWRITE, printf("  inode_block_num:               %d\n", inode_block_num));
+	DEBUG(DB_INODEWRITE, printf("  inode_in_block:                %d\n", inode_in_block));
+	DEBUG(DB_INODEWRITE, printf("  total_block_offset:            %d\n", total_block_offset));
+	DEBUG(DB_INODEWRITE, printf("  &block:                        %p\n", &block));
+	DEBUG(DB_INODEWRITE, printf("  &block.inodes[inode_in_block]: %p\n", &block.inodes[inode_in_block]));
+	
+	memcpy(&block.inodes[inode_in_block], modified, sizeof(inode));
+	
+	return writeBlock(total_block_offset, (uint8_t*)&block);
 }
 
-/*
-	Marks inode as free in both the inode structure and ilist bit
-	map.
+/* Marks an inode as free in the ibitmap
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   BAD_INODE      - not a valid inode in our fs
+ *   SUCCESS            - block was read
+ */
+int inode_free(int inode_num){
+	superblock sb;
 
-	Returns:
-		- FS uninitialized
-		- inode_num is out of range
-		- inode is already free
-*/
-int inode_free(int inode_num) {
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: inode_write: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	if (inode_num <= 0 || inode_num > sb.num_inodes){
+		ERR(fprintf(stderr, "ERR: inode_free: inode_num invalid\n"));
+		ERR(fprintf(stderr, "  inode_num:       %d\n", inode_num));
+		ERR(fprintf(stderr, "  min (exclusive): %d\n", 0));
+		ERR(fprintf(stderr, "  max (inclusive): %d\n", sb.num_inodes));
+		return BAD_INODE;
+	}
+	
+	int bitmap_block_num = (inode_num - 1) / BITS_PER_BLOCK;
+	int bit_in_block = (inode_num - 1) % BITS_PER_BLOCK;
+	
+	int byte_in_block = bit_in_block / 8;
+	int bit_in_byte = bit_in_block % 8;
+	
+	int total_block_offset = sb.ibitmap_block_offset + bitmap_block_num;
+	
+	uint8_t buf[BLOCK_SIZE];
+	readBlock(total_block_offset, buf);
+	
+	DEBUG(DB_INODEFREE, printf("DEBUG: inode_free: setting bit to 0\n"));
+	DEBUG(DB_INODEFREE, printf("  inode_num:                 %d\n", inode_num));
+	DEBUG(DB_INODEFREE, printf("  INODES_PER_BLOCK:          %d\n", INODES_PER_BLOCK));
+	DEBUG(DB_INODEFREE, printf("  bitmap_block_num:          %d\n", bitmap_block_num));
+	DEBUG(DB_INODEFREE, printf("  bit_in_block:              %d\n", bit_in_block));
+	DEBUG(DB_INODEFREE, printf("  byte_in_block:             %d\n", byte_in_block));
+	DEBUG(DB_INODEFREE, printf("  bit_in_byte:               %d\n", bit_in_byte));
+	DEBUG(DB_INODEFREE, printf("  total_block_offset:        %d\n", total_block_offset));
+	DEBUG(DB_INODEFREE, printf("  buf[byte_in_block] before: %x\n", buf[byte_in_block]));
 
+	/* Clear the bit */
+	buf[byte_in_block] &= (1UL << bit_in_byte);
+	
+	DEBUG(DB_INODEFREE, printf("  buf[byte_in_block] after:  %x\n", buf[byte_in_block]));
+	
+	return writeBlock(total_block_offset, buf);
 }
 
 /*
@@ -179,11 +373,11 @@ int inode_free(int inode_num) {
 		- not enough room in ilist
 		- inode_num is null
 */
-int inode_create(inode* newNode, int* inode_num) {
-
+int inode_create(inode* newNode, int* inode_num){
+	//TODO: write this function
 }
 
-/* Reads the specified data block into readBuf
+/* Reads the specified data block into readBuf, a buffer of size BLOCK_SIZE
  *
  * Note that data blocks are 1-indexed. 1 is the first data block,
  * and 0 is not a valid data block
@@ -194,7 +388,7 @@ int inode_create(inode* newNode, int* inode_num) {
  *   BUF_NULL           - readBuf is null
  *   SUCCESS            - block was read
  */
-int data_read(int data_block_num, uint8_t* readBuf) {
+int data_read(int data_block_num, uint8_t* readBuf){
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -222,7 +416,7 @@ int data_read(int data_block_num, uint8_t* readBuf) {
 	return readBlock(total_offset, readBuf);
 }
 
-/* Writes writeBuf to the specified data block
+/* Writes writeBuf, a buffer of size BLOCK_SIZE, to the specified data block
  *
  * Note that data blocks are 1-indexed. 1 is the first data block,
  * and 0 is not a valid data block
@@ -233,7 +427,7 @@ int data_read(int data_block_num, uint8_t* readBuf) {
  *   BUF_NULL           - writeBuf is null
  *   SUCCESS            - block was written
  */
-int data_write(int data_block_num, uint8_t* writeBuf){ //TODO: it's possible writeBuf should be a void pointer
+int data_write(int data_block_num, uint8_t* writeBuf){ //TODO: it's possible writeBuf should be a void pointer //TODO: fix camelCase
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -261,24 +455,145 @@ int data_write(int data_block_num, uint8_t* writeBuf){ //TODO: it's possible wri
 	return writeBlock(total_offset, writeBuf);
 }
 
-/*
-	Frees a data block specified by data_block_num and adds places it
-	onto the freelist.
+/* Puts a data block on the free list. Does not do any error checking
+ *
+ * Note that data blocks are 1-indexed. 1 is the first data block,
+ * and 0 is not a valid data block
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   INVALID_BLOCK      - not a valid data block in our fs
+ *   SUCCESS            - block was added to free list
+ */
+int data_free(int data_block_num){
+	superblock sb;
 
-	Returns:
-		- FS uninitialized
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: data_free: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	if (data_block_num <= 0 || data_block_num > sb.data_size){
+		ERR(fprintf(stderr, "ERR: data_free: data_block_num invalid\n"));
+		ERR(fprintf(stderr, "  data_block_num:  %d\n", data_block_num));
+		ERR(fprintf(stderr, "  min (exclusive): %d\n", 0));
+		ERR(fprintf(stderr, "  max (inclusive): %d\n", sb.data_size));
+		return INVALID_BLOCK;
+	}
+	
+	int original_root = sb.free_list_head;
 
-*/
-int date_free(int data_block_num) {
+	int cur_loc = original_root;
+	freelist_node cur_node;
+	
+	DEBUG(DB_DATAFREE, printf("DEBUG: data_free: scanning freelist for spot\n"));
+	DEBUG(DB_DATAFREE, printf("  cur_loc: %d\n", cur_loc));
+	
+	/* Scan the free list until the end */
+	int i;
+	while(cur_loc != INVALID_DATA){
+		/* Read the free list node */
+		data_read(cur_loc, (uint8_t*)&cur_node);
+		
+		/* Scan it for a spot to put our free'd block on */
+		for (i = 0; i < ADDR_PER_NODE; i++){
+			if (cur_node.addr[i] == INVALID_DATA){
+				DEBUG(DB_DATAFREE, printf("DEBUG: data_free: found a spot\n"));
+				DEBUG(DB_DATAFREE, printf("  cur_loc: %d\n", cur_loc));
+				DEBUG(DB_DATAFREE, printf("  i:       %d\n", i));
+				
+				cur_node.addr[i] = data_block_num;
+				return SUCCESS;
+			}
+		}
+		
+		/* If it's full, go to the next one */
+		cur_loc = cur_node.next;
+		
+		DEBUG(DB_DATAFREE, printf("  cur_loc: %d\n", cur_loc));
+	}
+	
+	/* Hit the end of the free list without finding a spot to put our
+	 * newly free'd node. Thus, we're going to transform the current block
+	 * into a new node for the freelist:
+	 */
+	memset(&cur_node, INVALID_DATA, sizeof(freelist_node));
 
+	/* It becomes the new root */
+	sb.free_list_head = data_block_num;
+	cur_node.next = original_root;
+	
+	DEBUG(DB_DATAFREE, printf("DEBUG: data_free: couldn't find a spot, creating new head\n"));
+	DEBUG(DB_DATAFREE, printf("  sb.free_list_head: %d\n", sb.free_list_head));
+	DEBUG(DB_DATAFREE, printf("  cur_node.next:     %d\n", cur_node.next));
+
+	/* Write the changes to disk */
+	data_write(data_block_num, (uint8_t*)&cur_node);
+	write_superblock(&sb);
+
+	return SUCCESS;
 }
 
-/*
-	Creates a data block by finding a free block on the free list.
+/* Finds a data block from the freelist and initializes it to
+ * newData. Puts the data block found in data_block_num
+ *
+ * Note that data blocks are 1-indexed. 1 is the first data block,
+ * and 0 is not a valid data block
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   DATA_FULL          - filesystem is full
+ *   SUCCESS            - a block was found and returned
+ */
+int data_allocate(uint8_t* newData, int* data_block_num){ //TODO: should probably clean data from allocated block
+	superblock sb;
 
-*/
-int data_allocate(uint8_t* newData, int* data_block_num) {
-
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: data_allocate: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	if (sb.free_list_head == INVALID_DATA){
+		return DATA_FULL;
+	}
+	
+	/* Look at the first node of the freelist */
+	freelist_node cur;
+	data_read(sb.free_list_head, (uint8_t*)&cur);
+	
+	DEBUG(DB_DATAALL, printf("DEBUG: data_allocate: checking freelist head\n"));
+	DEBUG(DB_DATAALL, printf("  sb.free_list_head: %d\n", sb.free_list_head));
+	
+	/* Scan its addresses */
+	int i;
+	*data_block_num = sb.free_list_head;
+	for (i = 0; i < ADDR_PER_NODE; i++){
+		/* If a free node is found, give the block to the user and update the node */
+		if (cur.addr[i] != INVALID_DATA){
+			*data_block_num = cur.addr[i];
+			cur.addr[i] = INVALID_DATA;
+			data_write(sb.free_list_head, (uint8_t*)&cur);
+			
+			DEBUG(DB_DATAALL, printf("  i:                 %d\n", i));
+			DEBUG(DB_DATAALL, printf("  *data_block_num:   %d\n", *data_block_num));
+			
+			return data_write(*data_block_num, newData);
+		}
+	}
+	
+	/* Otherwise, give the user the head of the free list and update sb */
+	sb.free_list_head = cur.next;
+	write_superblock(&sb);
+	
+	DEBUG(DB_DATAALL, printf("DEBUG: data_allocate: giving user the old freelist head\n"));
+	DEBUG(DB_DATAALL, printf("  sb.free_list_head: %d\n", sb.free_list_head));
+	DEBUG(DB_DATAALL, printf("  *data_block_num:   %d\n", *data_block_num));
+	
+	return data_write(*data_block_num, newData);
 }
 
 /* Reads the superblock into the provided object, if it exists
@@ -300,8 +615,8 @@ int read_superblock(superblock* sb){
 	
 	uint8_t temp_buffer[BLOCK_SIZE * SUPERBLOCK_SIZE];
 	
-	int i, ret;
 	/* Read the superblock into temp_buffer, one block at a time */
+	int i, ret;
 	for (i = 0; i < SUPERBLOCK_SIZE; i++){
 		/* Read a block and check the return value */
 		ret = readBlock(i, &temp_buffer[BLOCK_SIZE * i]);
@@ -318,6 +633,47 @@ int read_superblock(superblock* sb){
 	}
 	
 	memcpy(sb, temp_buffer, sizeof(superblock));
+
+	return SUCCESS;
+}
+
+/* Writes the provided superblock to disk
+ *
+ * This function assumes the disk hasn't been messed with. If you manually set
+ * disk instead of calling mkfs or leaving disk NULL, this isn't guaranteed to work right
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - no disk
+ *   BUF_NULL           - superblock buffer is null
+ *   SUCCESS            - read the superblock
+ */
+int write_superblock(superblock* sb){
+	if (sb == NULL){
+		ERR(fprintf(stderr, "ERR: write_superblock: sb is null\n"));
+		ERR(fprintf(stderr, "  sb: %p\n", sb));
+		return BUF_NULL;
+	}
+	
+	/* Put the suberblock into a block-size buffer */
+	uint8_t temp_buffer[BLOCK_SIZE * SUPERBLOCK_SIZE];
+	memcpy(temp_buffer, sb, sizeof(superblock));
+	
+	/* Write the superblock to disk, one block at a time */
+	int i, ret;
+	for (i = 0; i < SUPERBLOCK_SIZE; i++){
+		/* Write a block and check the return value */
+		ret = writeBlock(i, &temp_buffer[BLOCK_SIZE * i]);
+		if (ret != SUCCESS){
+			ERR(fprintf(stderr, "ERR: write_superblock: writeBlock failed\n"));
+			ERR(fprintf(stderr, "  ret: %d\n", ret));
+			return DISC_UNINITIALIZED;
+		}
+		
+		DEBUG(DB_WRITESB, printf("DEBUG: write_superblock: wrote a block of the superblock\n"));
+		DEBUG(DB_WRITESB, printf("  i:           %d\n", i));
+		DEBUG(DB_WRITESB, printf("  write_addr:  %p\n", &temp_buffer[BLOCK_SIZE * i]));
+		DEBUG(DB_WRITESB, printf("  temp_buffer: %p\n", temp_buffer));
+	}
 
 	return SUCCESS;
 }
