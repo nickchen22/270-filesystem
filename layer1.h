@@ -1,18 +1,30 @@
 #ifndef LAYER1_H
 #define LAYER1_H
 
-#define TOTALBLOCKS_INVALID -1
-
-typedef struct superblock {
+/* TODO: cache? superblock in program memory? */
+typedef struct __attribute__((__packed__)) superblock {
+	uint32_t ibitmap_block_offset;
+	uint32_t ibitmap_size; //in blocks
+	
 	uint32_t ilist_block_offset;
-	uint32_t ilist_size; //in inodes
+	uint32_t ilist_size; //in blocks
+
 	uint32_t data_block_offset;
 	uint32_t data_size;
+
 	uint32_t total_blocks;
-	bool* ilist_map;
+	uint32_t total_inodes;
+	
+	uint32_t free_list_head; /* TODO: Include free list tail? */
+	uint32_t root_inode;
+	
+	uint32_t block_size;
+	uint32_t inodes_per_block;
+	
+	uint8_t padding[0];
 } superblock;
 
-typedef struct inode {
+typedef struct __attribute__((__packed__)) inode {
 	uint32_t mode;
 	uint32_t links;
 	uint32_t owner_id;
@@ -24,8 +36,12 @@ typedef struct inode {
 	uint32_t double_indirect;
 } inode;
 
-int mkfs(int totalBlocks);
-void createSB(superblock *sb);
+typedef struct __attribute__((__packed__)) freelist_node {
+	uint32_t next;
+	uint32_t addr[(BLOCK_SIZE - sizeof(uint32_t)) / sizeof(uint32_t)];
+} freelist_node;
+
+int mkfs(int blocks);
 
 int inode_read(int inode_num, inode* readNode);
 int inode_write(int inode_num, inode* modified);
@@ -35,8 +51,8 @@ int inode_create(inode* newNode, int* inode_num);
 int data_read(int data_block_num, uint8_t* readBuf);
 int data_write(int data_block_num, uint8_t* writeBuf);
 int date_free(int data_block_num);
-int data_create(uint8_t* newData, int* data_block_num);
+int data_allocate(uint8_t* newData, int* data_block_num);
 
-superblock* sb;
+int read_superblock(superblock* sb);
 
 #endif
