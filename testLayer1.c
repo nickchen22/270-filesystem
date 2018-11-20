@@ -27,12 +27,27 @@
 #define S_IXOTH		1
 
 int main(int argc, const char **argv){
+<<<<<<< HEAD
 	total_blocks = 5;
 	disk = malloc(BLOCK_SIZE * 5);
 	uint8_t testBuf[BLOCK_SIZE];
+=======
+	printf("Hello World\n");
 	
-	readBlock(1, testBuf);
-	writeBlock(0, NULL);
+	mkfs(1139);
+>>>>>>> 6ed58b65183ef4a906859b338c490ee5c53ea706
+	
+	inode test;
+	inode_free(34);
+	
+	
+	
+	//total_blocks = 5;
+	//disk = malloc(BLOCK_SIZE * 5);
+	//uint8_t testBuf[BLOCK_SIZE];
+	
+	//readBlock(1, testBuf);
+	//writeBlock(0, NULL);
 
 	return EXIT_SUCCESS;
 }
