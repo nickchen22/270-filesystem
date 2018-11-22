@@ -1,6 +1,7 @@
 #include "globals.h"
 #include "layer0.h"
 #include "layer1.h"
+#include <limits.h>
 
 #define S_IFMT 		1507328
 #define S_IFSOCK 	1310720
@@ -26,100 +27,159 @@
 #define S_IWOTH		2
 #define S_IXOTH		1
 
-int main(int argc, const char **argv){
-<<<<<<< HEAD
-	total_blocks = 5;
-	disk = malloc(BLOCK_SIZE * 5);
-	uint8_t testBuf[BLOCK_SIZE];
-=======
-	printf("Hello World\n");
-	
-	mkfs(1139);
->>>>>>> 6ed58b65183ef4a906859b338c490ee5c53ea706
-	
-	inode test;
-	inode_free(34);
-	
-	
-	
-	//total_blocks = 5;
-	//disk = malloc(BLOCK_SIZE * 5);
-	//uint8_t testBuf[BLOCK_SIZE];
-	
-	//readBlock(1, testBuf);
-	//writeBlock(0, NULL);
 
-	return EXIT_SUCCESS;
+/* 
+ *	Writes the supplied inodes into the FS.
+ *	Writes the inodes starting at index 1, after the root inode, to the 
+ *	inode indexed at the length of the test suite minus one.
+ */
+void test_inode_write(inode* inodes, int numInodes) {
+	int length = numInodes;
+	int i;
+	for (i = 0; i < length; i++) {
+		int result = inode_write(i + 1, &inodes[i]);
+		if (result != SUCCESS) {
+			printf("^^^^^ ERROR in testing inode write with inode: %d \n", i);
+		}
+	}
 }
 
-int test_mkfs(){
-	int error_count = 0;
-	int result = mkfs(1);
-	if (result != TOTALBLOCKS_INVALID){
-		fprintf(stderr, "testLayer1: test_mkfs: mkfs worked wtih 1 block.\n");
-		error_count++;
+/*
+ *	Reads the supplied inodes from the test suite from the FS.
+ * 	Uses the same indexing system implemented in the testing
+ *	inode write.
+*/
+void test_inode_read(inode* inodes, int numInodes){
+	int length = numInodes;
+	inode* read_inodes = malloc(sizeof(inode) * length);
+	int i;
+	for (i = 0; i < length; i++) {
+		int result = inode_read(i + 1, &read_inodes[i]);
+		if (result != SUCCESS) {
+			printf("^^^^^ ERROR in testing inode read with inode: %d \n", i);
+		}
+
+		/* The following lines will print the read inodes for human readable purposes */
+		// printf("     printing inode: %d \n", i);
+		// print_inode(&read_inodes[i]);
 	}
-	
-	result = mkfs(2); // what to do if mkfs is called twice?
-					// throw an error or just return SUCCESS?
-					
-	if (result != SUCCESS){
-		fprintf(stderr, "testLayer1: test_mkfs: mkfs(2) didn't return SUCCESS.\n");
-		error_count++;
-	}
-	
-	if (sb->data_block_offset > 0){
-		fprintf(stderr, "testLayer1: test_mkfs: mkfs(2) allocated disk blocks.\n");
-		error_count++;
-		
-		disk = NULL;
-	}
-	
-	result = mkfs(2147483647);
-	if (result != TOTALBLOCKS_INVALID){
-		fprintf(stderr, "testLayer1: test_mkfs: mkfs worked with INT_MAX blocks.\n");
-		error_count++;
-	}
-	disk = NULL;
-	fprintf(stderr, "testLayer1: test_mfks finished with %d errors.\n", error_count);
 }
 
-int test_inode_read(){
-	int error_count = 0;
-	
-	inode* node1 = (inode *) malloc(sizeof(inode));
-	
-	int result = inode_read(10, node1);
-	if (result != DISC_UNINITIALIZED){
-		fprintf(stderr, "testLayer1: test_inode_read: inode_read doesn't return error when disk is NULL.\n");
-		error_count++;
+/* 	
+ * 	Declares and initializes a test suite of inodes to be run on inode write/read.
+ * 	Add any additional inode tests to this test suite and additionally, update
+ *	the value numInodes in tests().
+ */
+inode* createTestInodes(int numInodes) {
+	inode* nodes = malloc(sizeof(inode) * numInodes);
+	// inode 0
+	nodes[0].mode = S_IFREG & S_IRWXU; // regular file and RWX permissions
+	nodes[0].links = 1;
+	nodes[0].owner_id = 0; // owner id corresponds to the inode in the test set for identificatin purposes
+	nodes[0].size = 200;  // size of the file this inode belongs to is less than one block size
+	nodes[0].access_time = 0;
+	nodes[0].mod_time = 0;
+	int i;
+	nodes[0].direct_blocks[0] = 1;
+	for (i = 1; i < 10; i ++){
+		nodes[0].direct_blocks[i] = 0; // assumes addresses with 0 are unused
 	}
-	
-	int mkfs_result = mkfs(2);
-	result = inode_read(10, NULL);
-	if (result != READNODE_NULL){
-		fprintf(stderr, "testLayer1: test_inode_read: inode_read with NULL readNode doesn't break.\n");
-		error_count++;
+	nodes[0].indirect = 0;
+	nodes[0].double_indirect = 0;
+
+	// inode 1
+	nodes[1].mode = S_IFREG & S_IRWXU;
+	nodes[1].links = 1;
+	nodes[1].owner_id = 1;
+	nodes[1].size = 4096; // size of the file this inode belongs to is exactly one block size
+	nodes[1].access_time = 0;
+	nodes[1].mod_time = 0;
+	nodes[1].direct_blocks[0] = 2;
+	for (i = 1; i < 10; i ++){
+		nodes[1].direct_blocks[i] = 0;
 	}
-	
-	result = inode_read(2147483647, node1);
-	if (result != INODE_NUM_OUT_OF_RANGE){
-		fprintf(stderr, "testLayer1: test_inode_read: reading the INT_MAX inode doesn't break.\n");
+	nodes[1].indirect = 0;
+	nodes[1].double_indirect = 0;
+
+	// inode 2
+	nodes[2].mode = S_IFREG & S_IRWXU;
+	nodes[2].links = 1;
+	nodes[2].owner_id = 2;
+	nodes[2].size = 5000; // size of the file this inode belongs to spans two blocks
+	nodes[2].access_time = 0;
+	nodes[2].mod_time = 0;
+	nodes[2].direct_blocks[0] = 4; // location of file are 2 blocks next to each other
+	nodes[2].direct_blocks[1] = 5;
+	for (i = 2; i < 10; i ++){
+		nodes[2].direct_blocks[i] = 0;
 	}
-}
-int test_inode_write(){
-	inode* node1 = (inode*) malloc(sizeof(inode));
-	node1->mode = S_IFREG & S_IRWXU; // regular file and RWX permissions
-	node1->links = 0;
-	node1->owner_id = 0;
-	node1->size = 200;
-	node1->access_time = 0;
-	node1->mod_time = 0;
-	int i = 0;
+	nodes[2].indirect = 0;
+	nodes[2].double_indirect = 0;
+
+	//inode 3
+	nodes[3].mode = S_IFREG & S_IRWXU; // regular file and RWX permissions
+	nodes[3].links = 1;
+	nodes[3].owner_id = 3;
+	nodes[3].size = BLOCK_SIZE * 10;  // size of the file is 10 blocks
+	nodes[3].access_time = 0;
+	nodes[3].mod_time = 0;
 	for (i = 0; i < 10; i ++){
-		node1->direct_blocks[i] = 0;
+		nodes[3].direct_blocks[i] = i + 10;
 	}
-	node1->indirect = 0;
-	node1->double_indirect = 0;
-	
+	nodes[3].indirect = 0;
+	nodes[3].double_indirect = 0;
+
+	return nodes;
+}
+
+/*
+ * 	Entrypoint of tests for layer 1. Tests mkfs for multiple values with emphasis on edge cases.
+ * 	If created successfully, inode write tests are tested for that filesystem.
+ * 	These inodes that are written, are then tested with different read calls.
+ * 	Application of these inode interactions will not be meaningful until implementation
+ *	of layer 2.
+ */
+void tests(int filesystems[]) {
+	int numInodes = 4; 	// must match the number of inodes in the test suite
+	inode* inodes = createTestInodes(numInodes);
+	// for (int i = 0; i < numInodes; i++) {
+	// 	print_inode(&inodes[i]);
+	// }
+
+	int i;
+	for (i = 0; i < sizeof(filesystems); i++) {
+		printf("Building filesystem of %d blocks\n", filesystems[i]);
+		int result = mkfs(filesystems[i]);
+		if (result != SUCCESS) {
+			printf("^^^^^^ ERRORS WERE FOUND IN mkfs(%d)\n", filesystems[i]);
+		}
+		else {
+			printf("Running inode write tests for fs of size (%d)...\n", filesystems[i]);
+			test_inode_write(inodes, numInodes);
+			printf("WRITE TESTS COMPLETE!\n");
+			printf("Running inode read tests for fs of size (%d)...\n", filesystems[i]);
+			test_inode_read(inodes, numInodes);
+			printf("READ TESTS COMPLETE!\n");
+		}
+		free(disk); // frees the filesystem in order to prevent memory leak during testing
+	}
+}
+
+int main(int argc, const char **argv){
+
+	int fs_sizes[8]; //filesystem sizes to test in number of blocks
+	fs_sizes[0] = 0;
+	fs_sizes[1] = 1;
+	fs_sizes[2] = 2;
+	fs_sizes[3] = 3;
+	fs_sizes[4] = 4;
+	fs_sizes[5] = 1024;
+	fs_sizes[6] = 2048;
+	fs_sizes[7] = INT_MAX;
+
+	printf("Beginning tests...\n");
+	tests(fs_sizes);
+	printf("Tests complete!\n");
+
+	return 0;
 }

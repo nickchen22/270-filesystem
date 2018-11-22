@@ -40,7 +40,7 @@ int mkfs(int blocks){
 		ERR(fprintf(stderr, "  BLOCK_SIZE: %d\n", BLOCK_SIZE));
 		return BLOCKSIZE_TOO_SMALL;
 	}
-	
+
 	/************************ CREATE IN-MEMORY DISK ************************/
 	/* TODO: Add support for FS too big */
 
@@ -260,8 +260,8 @@ int inode_read(int inode_num, inode* readNode){
  * Returns:
  *   DISC_UNINITIALIZED - FS hasn't been set up yet
  *   BAD_INODE      - not a valid inode in this fs
- *   BUF_NULL           - readNode is null
- *   SUCCESS            - block was read
+ *   BUF_NULL           - writeNode is null
+ *   SUCCESS            - block was written
  */
 int inode_write(int inode_num, inode* modified){
 	superblock sb;
@@ -677,4 +677,22 @@ int write_superblock(superblock* sb){
 	}
 
 	return SUCCESS;
+}
+
+/* Prints inode for debugging purposes */
+void print_inode(inode* inode) {
+	printf("inode->mode: %d \n", inode->mode);
+	printf("inode->links: %d \n", inode->links);
+	printf("inode->owner_id: %d \n", inode->owner_id);
+	printf("inode->size: %d \n", inode->size);
+	printf("inode->access_time: %d \n", inode->access_time);
+	printf("inode->mod_time: %d \n", inode->mod_time);
+	printf("inode->direct_blocks: %d", inode->direct_blocks[0]);
+	int i;
+	for (i = 1; i < 10; i++) {
+		printf(", %d", inode->direct_blocks[i]);
+	}
+	printf("\n");
+	printf("inode->indirect: %d \n", inode->indirect);
+	printf("inode->double_indirect: %d \n", inode->double_indirect);
 }

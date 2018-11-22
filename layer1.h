@@ -1,17 +1,13 @@
 #ifndef LAYER1_H
 #define LAYER1_H
 
-<<<<<<< HEAD
-#define TOTALBLOCKS_INVALID -1
 #define READNODE_NULL -2
 #define INODE_NUM_OUT_OF_RANGE -3
-=======
 /* The minimum number of blocks we can possibly make a valid FS on */
 #define MIN_IBITMAP 1
 #define MIN_INODES 1
 #define MIN_DATA 1
 #define MIN_BLOCKS (SUPERBLOCK_SIZE + MIN_IBITMAP + MIN_INODES + MIN_DATA)
->>>>>>> 6ed58b65183ef4a906859b338c490ee5c53ea706
 
 /* The rough percentage of non-superblock blocks to use for i-nodes */
 #define INODES_PERCENT 0.1
