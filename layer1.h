@@ -30,6 +30,9 @@
 #define INVALID_INODE 0
 #define INVALID_DATA 0
 
+/* Max filesystem size in blocks (roughly 1 GB in bytes). To be removed when FUSE is integrated */
+#define MAX_FS_SIZE 250000
+
 /* TODO: cache? superblock in program memory? */
 typedef struct __attribute__((__packed__)) superblock {
 	uint32_t ibitmap_block_offset;
@@ -82,6 +85,7 @@ typedef struct __attribute__((__packed__)) freelist_node {
 int mkfs(int blocks);
 int init_superblock(int blocks);
 int init_freelist();
+int init_ibitmap();
 
 int inode_read(int inode_num, inode* readNode);
 int inode_write(int inode_num, inode* modified);

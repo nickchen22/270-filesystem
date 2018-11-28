@@ -148,7 +148,7 @@ void tests(int filesystems[]) {
 
 	int i;
 	for (i = 0; i < sizeof(filesystems); i++) {
-		printf("Building filesystem of %d blocks\n", filesystems[i]);
+		printf("\nBuilding filesystem of %d blocks\n", filesystems[i]);
 		int result = mkfs(filesystems[i]);
 		if (result != SUCCESS) {
 			printf("^^^^^^ ERRORS WERE FOUND IN mkfs(%d)\n", filesystems[i]);

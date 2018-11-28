@@ -43,7 +43,13 @@ int mkfs(int blocks){
 
 	/************************ CREATE IN-MEMORY DISK ************************/
 	/* TODO: Add support for FS too big */
-
+	/* No point in checking how much RAM is available when we integrate with FUSE.
+	 * In the meantime, hardcode restriction to ~1 GB filesystem.
+	 * Linux command df tells us how much storage space is available
+	 */
+	if (blocks > MAX_FS_SIZE){
+		blocks = MAX_FS_SIZE;
+	}
 	disk = malloc(blocks * BLOCK_SIZE);
 	total_blocks = blocks;
 	
@@ -65,6 +71,7 @@ int mkfs(int blocks){
 	
 	//TODO: these things
 	/* Initialize the ibitmap to 0s */
+	init_ibitmap();
 	
 	/* Create the root directory data */
 	
@@ -194,6 +201,36 @@ int init_freelist(){
 	return SUCCESS;
 }
 
+/* Initializes the ibitmap to all 0s except the first bit is a 1 since inode 0 is not valid.
+ * 
+ * This function is called during mkfs and is not really
+ * intended for normal use. It requires that the filesystem has
+ * at least a valid superblock
+ * 
+ * Returns:
+ * 	 DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   SUCCESS            - bitmap was initialized
+ */
+int init_ibitmap(){
+	DEBUG(DB_IBITMAP, printf("DEBUG: init_ibitmap: about to begin\n"));
+	superblock sb;
+
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: init_ibitmap: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	
+	uint8_t temp_buffer[BLOCK_SIZE * sb.ibitmap_size];
+	memset(&temp_buffer, 0, sizeof(temp_buffer));
+	temp_buffer[0] = 1;
+	
+	DEBUG(DB_IBITMAP, printf("DEBUG: init_ibitmap: ibitmap initialized\n"));
+	
+	return writeBlock(sb.ibitmap_block_offset, &temp_buffer);
+}
+
 /* Reads the specified inode into readNode, a buffer of size sizeof(inode)
  *
  * Note that inodes are 1-indexed. 1 is the first inode,
@@ -201,7 +238,7 @@ int init_freelist(){
  *
  * Returns:
  *   DISC_UNINITIALIZED - FS hasn't been set up yet
- *   BAD_INODE      - not a valid inode in this fs
+ *   BAD_INODE          - not a valid inode in this fs
  *   BUF_NULL           - readNode is null
  *   SUCCESS            - block was read
  */
@@ -259,7 +296,7 @@ int inode_read(int inode_num, inode* readNode){
  *
  * Returns:
  *   DISC_UNINITIALIZED - FS hasn't been set up yet
- *   BAD_INODE      - not a valid inode in this fs
+ *   BAD_INODE          - not a valid inode in this fs
  *   BUF_NULL           - writeNode is null
  *   SUCCESS            - block was written
  */
@@ -376,6 +413,75 @@ int inode_free(int inode_num){
 */
 int inode_create(inode* newNode, int* inode_num){
 	//TODO: write this function
+	
+	
+	DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: about to begin\n"));
+	if (newNode == NULL){
+		ERR(fprintf(stderr, "ERR: inode_create: newNode is null\n"));
+		ERR(fprintf(stderr, "  newNode: %p\n", newNode));
+		return BUF_NULL;
+	}
+	
+	if (inode_num == NULL){
+		ERR(fprintf(stderr, "ERR: inode_create: inode_num is null\n"));
+		ERR(fprintf(stderr, "  inode_num: %p\n", inode_num));
+		return INODE_NUM_NULL;
+	}
+	
+	superblock sb;
+
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: inode_create: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
+	int ibitmap_block_offset = sb.ibitmap_block_offset;
+	int ibitmap_size = sb.ibitmap_size;
+	
+	uint8_t temp_buffer[BLOCK_SIZE * ibitmap_size];
+	
+	int i, j = 0;
+	for (i = ibitmap_block_offset; i < ibitmap_block_offset + ibitmap_size; i++){
+		/* Read a block and check the return value */
+		ret = readBlock(i, &temp_buffer[BLOCK_SIZE * j++]);
+		if (ret != SUCCESS){
+			ERR(fprintf(stderr, "ERR: inode_create: readBlock failed\n"));
+			ERR(fprintf(stderr, "  ret: %d\n", ret));
+			return DISC_UNINITIALIZED;
+		}
+		
+		DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: read a block of the superblock\n"));
+		DEBUG(DB_INODECREATE, printf("  i:           %d\n", i));
+		DEBUG(DB_INODECREATE, printf("  write_addr:  %p\n", &temp_buffer[BLOCK_SIZE * (j-1)]));
+		DEBUG(DB_INODECREATE, printf("  temp_buffer: %p\n", temp_buffer));
+	}
+	
+	/* read the bitmap 1 byte at a time and skip bytes with all 1s (15). */
+	int free_bit = 0;
+	for (i = 0; i < sizeof(temp_buffer); i++){
+		uint8_t byte = temp_buffer[i];
+		if (byte == 15){ // if byte is full
+			if (byte == sizeof(temp_buffer) - 1){ // if entire map is full
+				ERR(fprintf(stderr, "ERR: inode_create: ilist is full\n"));
+				ERR(fprintf(stderr, "	ERR: last byte in ibitmap: %d\n", byte));
+				return ILIST_FULL;
+			}
+			free_bit += 8;
+		}
+		else {
+			for (j = 7; j >= 0; j--){
+				if (byte >> j == 0){
+						free_bit += (7 - j);
+						break;
+				}
+			}
+			break;
+		}
+	}
+	*inode_num = free_bit;
+	return inode_write(free_bit, newNode);
+	 
 }
 
 /* Reads the specified data block into readBuf, a buffer of size BLOCK_SIZE

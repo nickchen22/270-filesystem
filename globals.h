@@ -15,16 +15,20 @@
 #define BLOCKSIZE_TOO_SMALL -1003
 #define DATA_FULL -1004
 #define BAD_INODE -1005
+#define INODE_NUM_NULL -1006
+#define ILIST_FULL -1007
 
 #define DISC_UNINITIALIZED -1
 #define INVALID_BLOCK -2
 #define BUF_NULL -3
 
+
 #define SUCCESS 0
 #define UNEXPECTED_ERROR -99999
 
 /* Current debug and error status */
-#define CUR_DEBUG DB_INODEFREE
+//#define CUR_DEBUG DB_INODEFREE
+#define CUR_DEBUG DB_MKFS
 #define CUR_ERR SHOW_ERRORS
 
 /* Error codes */
@@ -48,6 +52,8 @@
 #define DB_INODEREAD 1108
 #define DB_INODEWRITE 1109
 #define DB_INODEFREE 1110
+#define DB_IBITMAP 1111
+#define DB_INODECREATE 1112
 
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
