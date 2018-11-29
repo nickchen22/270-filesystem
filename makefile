@@ -1,19 +1,25 @@
 CC = gcc
 
-EXECUTABLES = tests
+LIBRARIES = -lm
 
-all: $(EXECUTABLES)
+NAME = tests
+NAME_NODEBUG = tests_nodebug
 
-INCL = globals.h layer0.h layer1.h
-CFILES = layer0.c layer1.c testLayer1.c
+TEMP_DIR = tempdirectory
 
-USER = layer0.o layer1.o testLayer1.o
-
-tests: $(USER) $(INCL)
-	$(CC) -o tests $(USER)
-
-.c.o: $(INCL) $(CFILES)
-	$(CC) -c $*.c
+all: debug nodebug auto
+debug:
+	$(CC) *.c -lm -o $(NAME)
+nodebug:
+	mkdir $(TEMP_DIR)
+	cp *.c *.h $(TEMP_DIR)
+	rm $(TEMP_DIR)/curdebug.h
+	mv $(TEMP_DIR)/nodebug.h $(TEMP_DIR)/curdebug.h
+	$(CC) $(TEMP_DIR)/*.c $(LIBRARIES) -o $(NAME_NODEBUG)
+	rm -rf $(TEMP_DIR)
+auto: nodebug
+	./$(NAME_NODEBUG)
 
 clean:
-	/bin/rm -f *.o core $(EXECUTABLES) a.out
+	rm -f $(NAME_NODEBUG) $(NAME)
+	rm -rf $(TEMP_DIR)

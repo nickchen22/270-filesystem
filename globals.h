@@ -1,6 +1,8 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
+#include "curdebug.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,14 +27,8 @@
 #define BUF_NULL -3
 #define INT_NULL -4
 
-
 #define SUCCESS 0
 #define UNEXPECTED_ERROR -99999
-
-/* Current debug and error status */
-//#define CUR_DEBUG DB_INODEFREE
-#define CUR_DEBUG DB_MKDIRBASE
-#define CUR_ERR SHOW_ERRORS
 
 /* Error codes */
 #define SUPPRESS_ERRORS 1
@@ -55,7 +51,6 @@
 #define DB_INODEREAD 1108
 #define DB_INODEWRITE 1109
 #define DB_INODEFREE 1110
-#define DB_IBITMAP 1111
 #define DB_INODECREATE 1112
 #define DB_MKDIRBASE 1113
 

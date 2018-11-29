@@ -77,7 +77,7 @@ int mkfs(int blocks){
 	superblock sb;
 	read_superblock(&sb);
 	sb.root_inode = root_inode;
-	DEBUG(DB_MKFS, printf("    root inode: %d\n", root_inode));
+	DEBUG(DB_MKFS, printf("  root inode: %d\n", root_inode));
 	write_superblock(&sb);
 
 	return SUCCESS;
@@ -281,7 +281,7 @@ int init_freelist(){
  *   SUCCESS            - bitmap was initialized
  */
 int init_ibitmap(){
-	DEBUG(DB_IBITMAP, printf("DEBUG: init_ibitmap: about to begin\n"));
+	DEBUG(DB_MKFS, printf("DEBUG: init_ibitmap: about to begin\n"));
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -299,7 +299,7 @@ int init_ibitmap(){
 		writeBlock(sb.ibitmap_block_offset + cur_ibitmap_block, zero_buffer);
 	}
 	
-	DEBUG(DB_IBITMAP, printf("DEBUG: init_ibitmap: ibitmap initialized\n"));
+	DEBUG(DB_MKFS, printf("DEBUG: init_ibitmap: ibitmap initialized\n"));
 	
 	return SUCCESS;
 }
@@ -521,6 +521,17 @@ int inode_create(inode* newNode, int* inode_num){
 			uint8_t byte = ibitmap_buffer[byte_offset];
 			if (byte != 0xff){ // If a byte is full, continue
 				for (bit_offset = 0; bit_offset < 8; bit_offset++){
+					/* Calculate the inode_number of this bit */ //TODO this could be sped up but I don't think it matters much
+					inode_number = cur_ibitmap_block * (BLOCK_SIZE * 8);
+					inode_number += byte_offset * 8;
+					inode_number += bit_offset;
+					inode_number += 1; // One-indexed
+					
+					if (inode_number > sb.num_inodes){
+						ERR(fprintf(stderr, "ERR: inode_create: ilist is full\n"));
+						return ILIST_FULL;
+					}
+					
 					if (((byte << bit_offset) & 0x80) == 0){
 						DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: found a free spot\n"));
 						DEBUG(DB_INODECREATE, printf("  byte_offset:             %d\n", byte_offset));
@@ -536,13 +547,6 @@ int inode_create(inode* newNode, int* inode_num){
 						writeBlock(sb.ibitmap_block_offset + cur_ibitmap_block, ibitmap_buffer);
 						
 						DEBUG(DB_INODECREATE, printf("  byte (after):            %x\n", byte));
-						
-						/* Calculate the inode_number of the opening we just found */
-						inode_number += cur_ibitmap_block * (BLOCK_SIZE * 8);
-						inode_number += byte_offset * 8;
-						inode_number += bit_offset;
-						inode_number += 1; // One-indexed
-						
 						DEBUG(DB_INODECREATE, printf("  inode_number:            %d\n", inode_number));
 						
 						*inode_num = inode_number;
@@ -554,7 +558,6 @@ int inode_create(inode* newNode, int* inode_num){
 	}
 	
 	ERR(fprintf(stderr, "ERR: inode_create: ilist is full\n"));
-	
 	return ILIST_FULL;
 }
 
@@ -608,7 +611,7 @@ int data_read(int data_block_num, uint8_t* readBuf){
  *   BUF_NULL           - writeBuf is null
  *   SUCCESS            - block was written
  */
-int data_write(int data_block_num, uint8_t* writeBuf){ //TODO: it's possible writeBuf should be a void pointer //TODO: fix camelCase
+int data_write(int data_block_num, uint8_t* writeBuf){ //TODO: it's possible writeBuf should be a void pointer //TODO: fix camelCase + disk vs disc
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -739,6 +742,7 @@ int data_allocate(uint8_t* newData, int* data_block_num){
 	}
 	
 	if (sb.free_list_head == INVALID_DATA){
+		ERR(fprintf(stderr, "ERR: data_allocate: data blocks are full\n"));
 		return DATA_FULL;
 	}
 	
@@ -857,22 +861,4 @@ int write_superblock(superblock* sb){
 	}
 
 	return SUCCESS;
-}
-
-/* Prints inode for debugging purposes */
-void print_inode(inode* inode) {
-	printf("inode->mode: %d \n", inode->mode);
-	printf("inode->links: %d \n", inode->links);
-	printf("inode->owner_id: %d \n", inode->owner_id);
-	printf("inode->size: %d \n", inode->size);
-	printf("inode->access_time: %d \n", inode->access_time);
-	printf("inode->mod_time: %d \n", inode->mod_time);
-	printf("inode->direct_blocks: %d", inode->direct_blocks[0]);
-	int i;
-	for (i = 1; i < 10; i++) {
-		printf(", %d", inode->direct_blocks[i]);
-	}
-	printf("\n");
-	printf("inode->indirect: %d \n", inode->indirect);
-	printf("inode->double_indirect: %d \n", inode->double_indirect);
 }
