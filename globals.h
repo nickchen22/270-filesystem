@@ -15,12 +15,12 @@
 #define BLOCKSIZE_TOO_SMALL -1003
 #define DATA_FULL -1004
 #define BAD_INODE -1005
-#define INODE_NUM_NULL -1006
 #define ILIST_FULL -1007
 
 #define DISC_UNINITIALIZED -1
 #define INVALID_BLOCK -2
 #define BUF_NULL -3
+#define INT_NULL -4
 
 
 #define SUCCESS 0

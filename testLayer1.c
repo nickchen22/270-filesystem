@@ -195,6 +195,11 @@ int main(int argc, const char **argv){
 	inode_create(&dummy_inode, &inode_num);
 	printf("%d\n", inode_num);
 	
+	inode_free(inode_num);
+	
+	inode_create(&dummy_inode, &inode_num);
+	printf("%d\n", inode_num);
+	
 
 	return 0;
 }

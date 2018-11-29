@@ -397,24 +397,22 @@ int inode_free(int inode_num){
 	DEBUG(DB_INODEFREE, printf("  buf[byte_in_block] before: %x\n", buf[byte_in_block]));
 
 	/* Clear the bit */
-	buf[byte_in_block] &= (1UL << bit_in_byte);
+	buf[byte_in_block] &= buf[byte_in_block] ^ (0x80 >> bit_in_byte);
 	
 	DEBUG(DB_INODEFREE, printf("  buf[byte_in_block] after:  %x\n", buf[byte_in_block]));
 	
 	return writeBlock(total_block_offset, buf);
 }
 
-/*
-	Creates a new inode at the first available place in the ilist.
-	Passes the newly created inode to the address newNode and its
-	corresponding index in the ilist to the address inode_num.
-
-	Returns:
-		- FS uninitialized
-		- newNode is null
-		- not enough room in ilist
-		- inode_num is null
-*/
+/* Creates a new inode at the first available location in the ilist
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   BUF_NULL           - newNode is null
+ *   INT_NULL           - inode_num is null
+ *   ILIST_FULL         - the ilist is full
+ *   SUCCESS            - block was read
+ */
 int inode_create(inode* newNode, int* inode_num){
 	superblock sb;
 
@@ -435,12 +433,12 @@ int inode_create(inode* newNode, int* inode_num){
 	if (inode_num == NULL){
 		ERR(fprintf(stderr, "ERR: inode_create: inode_num is null\n"));
 		ERR(fprintf(stderr, "  inode_num: %p\n", inode_num));
-		return INODE_NUM_NULL;
+		return INT_NULL;
 	}
 	
 	uint8_t ibitmap_buffer[BLOCK_SIZE];
 	int cur_ibitmap_block;
-	int i, j = 0;
+	int byte_offset, bit_offset = 0;
 	int inode_number = 0;
 	for (cur_ibitmap_block = 0; cur_ibitmap_block < sb.ibitmap_size; cur_ibitmap_block++){
 		/* Read a block of the ibitmap */
@@ -450,29 +448,31 @@ int inode_create(inode* newNode, int* inode_num){
 		DEBUG(DB_INODECREATE, printf("  cur_ibitmap_block:           %d\n", cur_ibitmap_block));
 		
 		int free_bit = 0;
-		for (i = 0; i < sizeof(ibitmap_buffer); i++){
-			uint8_t byte = ibitmap_buffer[i];
+		for (byte_offset = 0; byte_offset < sizeof(ibitmap_buffer); byte_offset++){
+			uint8_t byte = ibitmap_buffer[byte_offset];
 			if (byte != 0xff){ // If a byte is full, continue
-				for (j = 7; j >= 0; j--){
-					if (((byte >> j) & 0x1) == 0){
+				for (bit_offset = 0; bit_offset < 8; bit_offset++){
+					if (((byte << bit_offset) & 0x80) == 0){
 						DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: found a free spot\n"));
-						DEBUG(DB_INODECREATE, printf("  i:                       %d\n", i));
-						DEBUG(DB_INODECREATE, printf("  j:                       %d\n", j));
+						DEBUG(DB_INODECREATE, printf("  byte_offset:             %d\n", byte_offset));
+						DEBUG(DB_INODECREATE, printf("  bit_offset:              %d\n", bit_offset));
 						DEBUG(DB_INODECREATE, printf("  cur_ibitmap_block:       %d\n", cur_ibitmap_block));
 						DEBUG(DB_INODECREATE, printf("  sb.ibitmap_block_offset: %d\n", sb.ibitmap_block_offset));
 						
-						DEBUG(DB_INODECREATE, printf("  byte (before):           %d\n", byte));
+						DEBUG(DB_INODECREATE, printf("  byte (before):           %x\n", byte));
 						
 						/* Update the ibitmap */
-						ibitmap_buffer[i] = byte | (0x1 << j);
+						byte |= (0x80 >> bit_offset);
+						ibitmap_buffer[byte_offset] = byte;
 						writeBlock(sb.ibitmap_block_offset + cur_ibitmap_block, ibitmap_buffer);
 						
-						DEBUG(DB_INODECREATE, printf("  byte (after):            %d\n", byte));
+						DEBUG(DB_INODECREATE, printf("  byte (after):            %x\n", byte));
 						
+						/* Calculate the inode_number of the opening we just found */
 						inode_number += cur_ibitmap_block * (BLOCK_SIZE * 8);
-						inode_number += i * 8;
-						inode_number += (7 - j);
-						inode_number += 1;
+						inode_number += byte_offset * 8;
+						inode_number += bit_offset;
+						inode_number += 1; // One-indexed
 						
 						DEBUG(DB_INODECREATE, printf("  inode_number:            %d\n", inode_number));
 						
@@ -659,7 +659,7 @@ int data_free(int data_block_num){
  *   DATA_FULL          - filesystem is full
  *   SUCCESS            - a block was found and returned
  */
-int data_allocate(uint8_t* newData, int* data_block_num){ //TODO: should probably clean data from allocated block
+int data_allocate(uint8_t* newData, int* data_block_num){
 	superblock sb;
 
 	int ret = read_superblock(&sb);
