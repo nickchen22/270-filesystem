@@ -3,9 +3,13 @@
 makefile notes:
 
 make debug   - makes the executable called tests, which has debug info
+
 make nodebug - makes the executable called tests\_nodebug, which silences all debug information
+
 make auto    - does the nodebug comand AND runs test automatically
+
 make all     - does all of the above, mostly use this one
+
 make clean   - deletes tempdirectory and executables
 
 testing notes:
