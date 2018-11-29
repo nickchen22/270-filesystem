@@ -1,26 +1,24 @@
 #include "globals.h"
-#include "layer1.h"
 #include "layer0.h"
+#include "layer1.h"
+#include "layer2.h"
 
-
-/* 
-	Initiliazes filesystem by allocating a buffer of size
-	blocks * BLOCK_SIZE. Assigns disk to point to the
-	beginning of this buffer. Initializes superblock and
-	establishes percentage ratio between data blocks and ilist blocks
-	(fractional blocks wil be assigned to the ilist). Creates ilist
-	bit map between superblock and ilist with the size defined, in bits,
-	as the number of inodes in the ilist. Initializes free list, creates 
-	root inode and updates the superblock.
-	
-	only works if sizeof(inode) <= blocksize
-
-	Returns:
-		- Error: negative total blocks
-		- Error: not enough blocks for superblock/ilist
-		- Adjustment: too many blocks, not enough room on disk
-		- Success
-*/
+/* Initializes a filesystem for use by other functions by doing the following:
+ * - Allocates min(MAX_FS_SIZE, blocks) * BLOCK_SIZE bytes to the filesystem
+ * - Updates global variables to point to the filesystem
+ * - Initializes superblock and sizes of each part of the filesystem (fractional blocks are
+ *   assigned to the inodes)
+ * - Creates the ilist and ibitmap
+ * - Initializes the free list
+ * - Creates the root inode and updates the superblock
+ *
+ * Returns:
+ *   TOTALBLOCKS_INVALID - blocks is a negative number
+ *   FS_TOO_SMALL        - blocks is smaller than MIN_BLOCKS
+ *   BLOCKSIZE_TOO_SMALL - can't fit an inode into a single block
+ *   UNEXPECTED_ERROR    - malloc error
+ *   SUCCESS             - filesystem was created
+ */
 int mkfs(int blocks){
 	if (blocks < 0){
 		ERR(fprintf(stderr, "ERR: mkfs: blocks is invalid\n"));
@@ -72,11 +70,82 @@ int mkfs(int blocks){
 	/* Initialize the ibitmap to 0s */
 	init_ibitmap();
 	
-	//TODO: these things
-	/* Create the root directory data */
-	
 	/* Create the root inode */
+	int root_inode = 0;
+	create_dir_base(&root_inode, S_IFDIR | S_IRWXU | S_IRGRP | S_IROTH, ROOT_UID, INVALID_INODE);
+	
+	superblock sb;
+	read_superblock(&sb);
+	sb.root_inode = root_inode;
+	DEBUG(DB_MKFS, printf("    root inode: %d\n", root_inode));
+	write_superblock(&sb);
 
+	return SUCCESS;
+}
+
+/* Creates a blank directory, which only contains the . and .. items
+ *
+ * If parent_inum is 0, the parent is set to itself (used in creating root inode)
+ *
+ * This function is called during mkfs and mkdir and is not really
+ * intended for normal use
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - FS hasn't been set up yet
+ *   DATA_FULL          - no room for the data block
+ *   ILIST_FULL         - no room for the inode
+ *   SUCCESS            - superblock was created
+ */
+int create_dir_base(int* inode_num, mode_t mode, int owner_id, int parent_inum){
+	int ret;
+	
+	/* Get an inode */
+	int my_inode = 0;
+	inode new_dir;
+	ret = inode_create(&new_dir, &my_inode);
+	if (ret != SUCCESS){
+		DEBUG(DB_MKDIRBASE, printf("DEBUG: create_dir_base: couldn't allocate inode\n"));
+		return ret;
+	}
+	
+	/* Get and populate a data block */
+	int data_num = 0;
+	dirblock d;
+
+	dir_ent dot;
+	strcpy(dot.name, ".");
+	dot.inode_num = my_inode;
+	
+	dir_ent dot_dot;
+	strcpy(dot_dot.name, "..");
+	if (parent_inum == INVALID_INODE){
+		dot_dot.inode_num = my_inode;
+	}
+	else{
+		dot_dot.inode_num = parent_inum;
+	}
+	
+	d.dir_ents[0] = dot;
+	d.dir_ents[1] = dot_dot;
+	ret = data_allocate((uint8_t*)&d, &data_num);
+	if (ret != SUCCESS){
+		DEBUG(DB_MKDIRBASE, printf("DEBUG: create_dir_base: couldn't allocate datablock\n"));
+		return ret;
+	}
+	
+	/* Initialize the inode */
+	memset(&new_dir, 0, sizeof(inode));
+	new_dir.mode = mode;
+	new_dir.owner_id = owner_id;
+	new_dir.size = 2 * sizeof(dir_ent); /* Should never be more than one block, or we have a problem */
+	new_dir.direct_blocks[0] = data_num;
+	inode_write(my_inode, &new_dir);
+	
+	DEBUG(DB_MKDIRBASE, printf("DEBUG: create_dir_base: created the dir\n"));
+	DEBUG(DB_MKDIRBASE, printf("  my_inode: %d\n", my_inode));
+	DEBUG(DB_MKDIRBASE, printf("  data_num: %d\n", data_num));
+	
+	*inode_num = my_inode;
 	return SUCCESS;
 }
 

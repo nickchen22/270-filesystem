@@ -1,8 +1,10 @@
 #include "globals.h"
 #include "layer0.h"
 #include "layer1.h"
+#include "layer2.h"
 #include <limits.h>
 
+/*
 #define S_IFMT 		1507328
 #define S_IFSOCK 	1310720
 #define S_IFLNK 	1179648
@@ -25,7 +27,7 @@
 #define S_IRWXO		7
 #define S_IROTH		4
 #define S_IWOTH		2
-#define S_IXOTH		1
+#define S_IXOTH		1 */
 
 
 /* 
@@ -200,6 +202,9 @@ int main(int argc, const char **argv){
 	inode_create(&dummy_inode, &inode_num);
 	printf("%d\n", inode_num);
 	
+	printf("Eaccess: %d\n", EACCES);
+	dirblock a;
+	printf("size of dirblock: %d\n", sizeof(dirblock));
 
 	return 0;
 }

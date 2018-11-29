@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 #define BLOCK_SIZE 4096
 
@@ -28,7 +31,7 @@
 
 /* Current debug and error status */
 //#define CUR_DEBUG DB_INODEFREE
-#define CUR_DEBUG DB_INODECREATE
+#define CUR_DEBUG DB_MKDIRBASE
 #define CUR_ERR SHOW_ERRORS
 
 /* Error codes */
@@ -54,6 +57,7 @@
 #define DB_INODEFREE 1110
 #define DB_IBITMAP 1111
 #define DB_INODECREATE 1112
+#define DB_MKDIRBASE 1113
 
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))

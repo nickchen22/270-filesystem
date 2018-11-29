@@ -22,9 +22,11 @@
 /* How inodes are packed into blocks */
 #define INODES_PER_BLOCK (BLOCK_SIZE / sizeof(inode))
 #define INODES_REMAINDER (BLOCK_SIZE % sizeof(inode))
+#define NUM_DIRECT 10
 
 #define BITS_PER_BLOCK (BLOCK_SIZE * 8)
 
+#define ROOT_UID 0
 #define ROOT_INODE 1
 #define ROOT_FREELIST 1
 #define INVALID_INODE 0
@@ -58,15 +60,17 @@ typedef struct __attribute__((__packed__)) superblock {
 } superblock;
 
 typedef struct __attribute__((__packed__)) inode {
-	uint32_t mode;
+	mode_t mode;
 	uint32_t links;
 	uint32_t owner_id;
 	uint32_t size;
 	uint32_t access_time;
 	uint32_t mod_time;
-	uint32_t direct_blocks[10];
+	uint32_t direct_blocks[NUM_DIRECT];
 	uint32_t indirect;
 	uint32_t double_indirect;
+	
+	uint8_t padding[0];
 } inode;
 
 typedef struct __attribute__((__packed__)) iblock {
@@ -86,6 +90,7 @@ int mkfs(int blocks);
 int init_superblock(int blocks);
 int init_freelist();
 int init_ibitmap();
+int create_dir_base(int* inode_num, mode_t mode, int owner_id, int parent_inum);
 
 int inode_read(int inode_num, inode* readNode);
 int inode_write(int inode_num, inode* modified);
