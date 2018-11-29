@@ -28,7 +28,7 @@
 
 /* Current debug and error status */
 //#define CUR_DEBUG DB_INODEFREE
-#define CUR_DEBUG DB_MKFS
+#define CUR_DEBUG DB_INODECREATE
 #define CUR_ERR SHOW_ERRORS
 
 /* Error codes */

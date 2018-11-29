@@ -69,10 +69,10 @@ int mkfs(int blocks){
 	/* Initialize the free list */
 	init_freelist();
 	
-	//TODO: these things
 	/* Initialize the ibitmap to 0s */
 	init_ibitmap();
 	
+	//TODO: these things
 	/* Create the root directory data */
 	
 	/* Create the root inode */
@@ -201,7 +201,7 @@ int init_freelist(){
 	return SUCCESS;
 }
 
-/* Initializes the ibitmap to all 0s except the first bit is a 1 since inode 0 is not valid.
+/* Initializes the ibitmap to all 0s
  * 
  * This function is called during mkfs and is not really
  * intended for normal use. It requires that the filesystem has
@@ -222,13 +222,17 @@ int init_ibitmap(){
 		return DISC_UNINITIALIZED;
 	}
 	
-	uint8_t temp_buffer[BLOCK_SIZE * sb.ibitmap_size];
-	memset(&temp_buffer, 0, sizeof(temp_buffer));
-	temp_buffer[0] = 1;
+	uint8_t zero_buffer[BLOCK_SIZE];
+	memset(zero_buffer, 0, sizeof(zero_buffer));
+	
+	int cur_ibitmap_block = 0;
+	for (cur_ibitmap_block = 0; cur_ibitmap_block < sb.ibitmap_size; cur_ibitmap_block++){
+		writeBlock(sb.ibitmap_block_offset + cur_ibitmap_block, zero_buffer);
+	}
 	
 	DEBUG(DB_IBITMAP, printf("DEBUG: init_ibitmap: ibitmap initialized\n"));
 	
-	return writeBlock(sb.ibitmap_block_offset, &temp_buffer);
+	return SUCCESS;
 }
 
 /* Reads the specified inode into readNode, a buffer of size sizeof(inode)
@@ -412,8 +416,14 @@ int inode_free(int inode_num){
 		- inode_num is null
 */
 int inode_create(inode* newNode, int* inode_num){
-	//TODO: write this function
-	
+	superblock sb;
+
+	int ret = read_superblock(&sb);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: inode_create: read_superblock failed\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return DISC_UNINITIALIZED;
+	}
 	
 	DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: about to begin\n"));
 	if (newNode == NULL){
@@ -428,60 +438,55 @@ int inode_create(inode* newNode, int* inode_num){
 		return INODE_NUM_NULL;
 	}
 	
-	superblock sb;
-
-	int ret = read_superblock(&sb);
-	if (ret != SUCCESS){
-		ERR(fprintf(stderr, "ERR: inode_create: read_superblock failed\n"));
-		ERR(fprintf(stderr, "  ret: %d\n", ret));
-		return DISC_UNINITIALIZED;
-	}
-	int ibitmap_block_offset = sb.ibitmap_block_offset;
-	int ibitmap_size = sb.ibitmap_size;
-	
-	uint8_t temp_buffer[BLOCK_SIZE * ibitmap_size];
-	
+	uint8_t ibitmap_buffer[BLOCK_SIZE];
+	int cur_ibitmap_block;
 	int i, j = 0;
-	for (i = ibitmap_block_offset; i < ibitmap_block_offset + ibitmap_size; i++){
-		/* Read a block and check the return value */
-		ret = readBlock(i, &temp_buffer[BLOCK_SIZE * j++]);
-		if (ret != SUCCESS){
-			ERR(fprintf(stderr, "ERR: inode_create: readBlock failed\n"));
-			ERR(fprintf(stderr, "  ret: %d\n", ret));
-			return DISC_UNINITIALIZED;
-		}
+	int inode_number = 0;
+	for (cur_ibitmap_block = 0; cur_ibitmap_block < sb.ibitmap_size; cur_ibitmap_block++){
+		/* Read a block of the ibitmap */
+		ret = readBlock(sb.ibitmap_block_offset + cur_ibitmap_block, ibitmap_buffer);
 		
-		DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: read a block of the superblock\n"));
-		DEBUG(DB_INODECREATE, printf("  i:           %d\n", i));
-		DEBUG(DB_INODECREATE, printf("  write_addr:  %p\n", &temp_buffer[BLOCK_SIZE * (j-1)]));
-		DEBUG(DB_INODECREATE, printf("  temp_buffer: %p\n", temp_buffer));
-	}
-	
-	/* read the bitmap 1 byte at a time and skip bytes with all 1s (15). */
-	int free_bit = 0;
-	for (i = 0; i < sizeof(temp_buffer); i++){
-		uint8_t byte = temp_buffer[i];
-		if (byte == 15){ // if byte is full
-			if (byte == sizeof(temp_buffer) - 1){ // if entire map is full
-				ERR(fprintf(stderr, "ERR: inode_create: ilist is full\n"));
-				ERR(fprintf(stderr, "	ERR: last byte in ibitmap: %d\n", byte));
-				return ILIST_FULL;
-			}
-			free_bit += 8;
-		}
-		else {
-			for (j = 7; j >= 0; j--){
-				if (byte >> j == 0){
-						free_bit += (7 - j);
-						break;
+		DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: read a block of the ibitmap\n"));
+		DEBUG(DB_INODECREATE, printf("  cur_ibitmap_block:           %d\n", cur_ibitmap_block));
+		
+		int free_bit = 0;
+		for (i = 0; i < sizeof(ibitmap_buffer); i++){
+			uint8_t byte = ibitmap_buffer[i];
+			if (byte != 0xff){ // If a byte is full, continue
+				for (j = 7; j >= 0; j--){
+					if (((byte >> j) & 0x1) == 0){
+						DEBUG(DB_INODECREATE, printf("DEBUG: inode_create: found a free spot\n"));
+						DEBUG(DB_INODECREATE, printf("  i:                       %d\n", i));
+						DEBUG(DB_INODECREATE, printf("  j:                       %d\n", j));
+						DEBUG(DB_INODECREATE, printf("  cur_ibitmap_block:       %d\n", cur_ibitmap_block));
+						DEBUG(DB_INODECREATE, printf("  sb.ibitmap_block_offset: %d\n", sb.ibitmap_block_offset));
+						
+						DEBUG(DB_INODECREATE, printf("  byte (before):           %d\n", byte));
+						
+						/* Update the ibitmap */
+						ibitmap_buffer[i] = byte | (0x1 << j);
+						writeBlock(sb.ibitmap_block_offset + cur_ibitmap_block, ibitmap_buffer);
+						
+						DEBUG(DB_INODECREATE, printf("  byte (after):            %d\n", byte));
+						
+						inode_number += cur_ibitmap_block * (BLOCK_SIZE * 8);
+						inode_number += i * 8;
+						inode_number += (7 - j);
+						inode_number += 1;
+						
+						DEBUG(DB_INODECREATE, printf("  inode_number:            %d\n", inode_number));
+						
+						*inode_num = inode_number;
+						return inode_write(inode_number, newNode);
+					}
 				}
 			}
-			break;
 		}
 	}
-	*inode_num = free_bit;
-	return inode_write(free_bit, newNode);
-	 
+	
+	ERR(fprintf(stderr, "ERR: inode_create: ilist is full\n"));
+	
+	return ILIST_FULL;
 }
 
 /* Reads the specified data block into readBuf, a buffer of size BLOCK_SIZE

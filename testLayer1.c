@@ -180,6 +180,21 @@ int main(int argc, const char **argv){
 	printf("Beginning tests...\n");
 	tests(fs_sizes);
 	printf("Tests complete!\n");
+	
+	
+	mkfs(400);
+	
+	int inode_num = 0;
+	inode dummy_inode;
+	inode_create(&dummy_inode, &inode_num);
+	printf("%d\n", inode_num);
+	inode_create(&dummy_inode, &inode_num);
+	printf("%d\n", inode_num);
+	inode_create(&dummy_inode, &inode_num);
+	printf("%d\n", inode_num);
+	inode_create(&dummy_inode, &inode_num);
+	printf("%d\n", inode_num);
+	
 
 	return 0;
 }
