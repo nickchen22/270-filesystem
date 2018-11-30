@@ -9,10 +9,13 @@
 
 int mkfs_size();
 int lots_inodes();
+int lots_inodes_free_some();
+int lots_inodes_free_all();
+int free_nonexistent_inode();
 void print_inode(inode* inode);
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {mkfs_size, lots_inodes};
+	int (*tests[])() = {mkfs_size, lots_inodes, lots_inodes_free_some, free_nonexistent_inode};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
 	
@@ -210,3 +213,203 @@ int lots_inodes(){
 
 	return TEST_PASSED;
 }
+
+/* PURPOSE:
+ *   - Confirm that many inodes can be created
+ *   - Confirm that the lowest available inode is allocated first & same inode isn't allocated multiple times if not freed
+ *   - Confirm that inodes cannot be created once FS is full
+ *   - Confirm that we can fit the expected number of inodes in the FS
+ *	 - Confirm that inodes can be freed expectedly
+ * METHODOLOGY:
+ *   - Create inodes until the filesystem runs out of space for them and then free an arbitrary number of inodes
+ * 	 - Frees inodes starting from index 2, after the root inode
+ * EXPECTED RESULTS:
+ *   - inode creation works and returns SUCCESS, until the FS runs out of room and they begin returning ILIST_FULL
+ *   - exactly sb.num_inodes - 1 inodes should be created at this point
+ * 	 - an arbitrary number of inodes are then freed, if result is SUCCESS, the number of inodes created is decremented
+ *	 - exactly sb.num_inodes - 1 - (NUM_FREED) should exist
+ */
+int lots_inodes_free_some() {
+	printf("%30s", "MK_INODES_AND_FREE_SOME");
+	fflush(stdout);
+	
+	int BLOCKS = 400;
+	int NUM_FREED = 10;
+
+	mkfs(BLOCKS);
+	superblock sb;
+	read_superblock(&sb);
+	
+	int expected_inodes = sb.num_inodes - 1 - NUM_FREED;
+
+	int testing = 1, number = 0, previous_number = 0, result = 0, inodes_created = 0;
+	inode dummy_inode;
+	
+	while (testing){
+		result = inode_create(&dummy_inode, &number);
+		
+		/* Check return values */
+		if (result == SUCCESS){
+			inodes_created++;
+		}
+		else if (result == ILIST_FULL){
+			break;
+		}
+		else{
+			free(disk);
+			printf("%d\n", result);
+			return TEST_FAILED;
+		}
+		
+		/* Check that inode numbers are increasing */
+		if (number <= previous_number){
+			free(disk);
+			return TEST_FAILED;
+		}
+		previous_number = number;
+	}
+	
+	for (int i = 0; i < NUM_FREED; i++) {
+
+		/* Starts free at inode after root */
+		result = inode_free(i + 2);
+
+		if (result == SUCCESS) {
+			inodes_created--;
+		}
+		else if (result == BAD_INODE) {
+			free(disk);
+			printf("inode free out of range at inode num: %d\n", i);
+			return TEST_FAILED;
+		}
+		else {
+			free(disk);
+			printf("%d\n", result);
+			return TEST_FAILED;
+		}
+	}
+
+	free(disk);
+	if (inodes_created != expected_inodes){
+		return TEST_FAILED;
+	}
+
+	return TEST_PASSED;
+}
+
+int lots_inodes_free_all() {
+	printf("%30s", "MK_INODES_THEN_FREE");
+	fflush(stdout);
+	
+	int BLOCKS = 400;
+
+	mkfs(BLOCKS);
+	superblock sb;
+	read_superblock(&sb);
+	
+	int expected_inodes = sb.num_inodes - 1;
+
+	int testing = 1, number = 0, previous_number = 0, result = 0, inodes_created = 0;
+	inode dummy_inode;
+	
+	while (testing){
+		result = inode_create(&dummy_inode, &number);
+		
+		/* Check return values */
+		if (result == SUCCESS){
+			inodes_created++;
+		}
+		else if (result == ILIST_FULL){
+			break;
+		}
+		else{
+			free(disk);
+			printf("%d\n", result);
+			return TEST_FAILED;
+		}
+		
+		if (number <= previous_number){
+			free(disk);
+			return TEST_FAILED;
+		}
+		previous_number = number;
+	}
+
+	if (inodes_created != expected_inodes){
+		return TEST_FAILED;
+	}
+
+	int i;
+	for (i = 0; i < expected_inodes; i++) {
+		int free_result = inode_free(i + 2);
+
+		if (free_result == SUCCESS) {
+			inodes_created--;
+		}
+		else if (result == BAD_INODE) {
+			free(disk);
+			printf("inode out of range: %d\n,", free_result);
+			return TEST_FAILED;
+		}
+		else {
+			free(disk);
+			printf("%d\n", free_result);
+			return TEST_FAILED;
+		}
+	}
+
+	free(disk);
+	if (inodes_created != 0)
+		return TEST_FAILED;
+
+	return TEST_PASSED;
+}
+
+/*
+ * PUROPOSE:
+ *		- Ensure there are no errors should an inode be freed that has not been allocated
+ * METHODOLOGY:
+ *		- Create a fs that will, initially, have no inodes
+ *		- Free the first inode after the root inode
+ *		- Create an inode which should have the first available inode num, the inode just freed
+ * EXPECTED RESULTS:
+ * 		- the inode should be freed correctly with no erros and report SUCCESS
+ *		- an inode is created, should that success, the inode number it is assigned should be the same
+ *		 	index that was just freed and return TEST_PASSED
+ *		- any unexpected errors during this are printed and return TEST_FAILED
+ */
+int free_nonexistent_inode() {
+	printf("%30s", "FREE_NONEXISTENT_INODE");
+	fflush(stdout);
+	
+	int BLOCKS = 400;
+
+	mkfs(BLOCKS);
+	superblock sb;
+	read_superblock(&sb);
+
+	/* Frees the inode directly after the root that has not been allocated */
+	int result = inode_free(2);
+
+	if (result == SUCCESS) {
+		int dummy_inode_num;
+		inode dummy_inode;
+		int create_result = inode_create(&dummy_inode, &dummy_inode_num);
+		if (create_result == SUCCESS) {
+			if (dummy_inode_num == 2) {
+				return TEST_PASSED;
+			}
+			else {
+				printf("Assigned incorrect inode num, index considered taken.");
+				result = create_result;
+			}
+		}
+		else {
+			result = create_result;
+		}
+	}
+	free(disk);
+	printf("%d\n", result);
+	return TEST_FAILED;
+}
+
