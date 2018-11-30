@@ -20,7 +20,7 @@ extern int total_blocks;
  *   INVALID_BLOCK      - invalid block specified
  *   SUCCESS            - wrote data to disk
  */
-int writeBlock(int blocknum, uint8_t* write_buf);
+int writeBlock(int blocknum, void* write_buf);
 
 /* Reads the data located at the blocknum-th block in the
  * global disk variable into a buffer located at read_buf
@@ -35,6 +35,6 @@ int writeBlock(int blocknum, uint8_t* write_buf);
  *   INVALID_BLOCK      - invalid block specified
  *   SUCCESS            - read data to buffer
  */
-int readBlock(int blocknum, uint8_t* read_buf);
+int readBlock(int blocknum, void* read_buf);
 
 #endif

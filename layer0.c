@@ -17,7 +17,7 @@ int total_blocks = UNINITIALIZED_BLOCKS;
  *   INVALID_BLOCK      - invalid block specified
  *   SUCCESS            - wrote data to disk
  */
-int writeBlock(int blocknum, uint8_t* write_buf){
+int writeBlock(int blocknum, void* write_buf){
 	if (total_blocks == UNINITIALIZED_BLOCKS || disk == NULL){
 		ERR(fprintf(stderr, "ERR: writeBlock: disk uninitialized\n"));
 		ERR(fprintf(stderr, "  disk:         %p\n", disk));
@@ -65,7 +65,7 @@ int writeBlock(int blocknum, uint8_t* write_buf){
  *   INVALID_BLOCK      - invalid block specified
  *   SUCCESS            - read data to buffer
  */
-int readBlock(int blocknum, uint8_t* read_buf){
+int readBlock(int blocknum, void* read_buf){
 	if (total_blocks == UNINITIALIZED_BLOCKS || disk == NULL){
 		ERR(fprintf(stderr, "ERR: readBlock: disk uninitialized\n"));
 		ERR(fprintf(stderr, "  disk:         %p\n", disk));

@@ -21,6 +21,7 @@
 #define DATA_FULL -1004
 #define BAD_INODE -1005
 #define ILIST_FULL -1007
+#define BAD_UID -1008
 
 #define DISC_UNINITIALIZED -1
 #define INVALID_BLOCK -2
@@ -54,6 +55,11 @@
 #define DB_INODECREATE 1112
 #define DB_MKDIRBASE 1113
 
+#define DB_GETNTH 2001
+#define DB_READI 2002
+
+#define TRUE 1
+#define FALSE 0
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))

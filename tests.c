@@ -3,18 +3,22 @@
 #include "layer1.h"
 #include "layer2.h"
 #include <limits.h>
+#include <time.h>
 
 #define TEST_FAILED 0
 #define TEST_PASSED 1
 
 int mkfs_size();
 int lots_inodes();
+int get_nth_1();
+int get_nth_2();
 void print_inode(inode* inode);
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {mkfs_size, lots_inodes};
+	int (*tests[])() = {mkfs_size, lots_inodes, get_nth_1, get_nth_2};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
+	srand(time(NULL));
 	
 	/* Figure out which tests to run by reading arguments */
 	int i;
@@ -53,7 +57,23 @@ int main(int argc, const char **argv){
 
 	/* Any other temporary test code can go here */
 	
+	mkfs(400, 0, 0);
+	uint8_t buf[1000000];
 	
+	//dirblock d;
+	inode dummy_inode;
+	int number;
+
+	dummy_inode.size = 10000000;
+	inode_create(&dummy_inode, &number);
+
+	read_i(number, &buf, 34, BLOCK_SIZE);
+
+	int created = FALSE;
+	get_nth_datablock(&dummy_inode, 3453467, TRUE, &created);
+	get_nth_datablock(&dummy_inode, 3453468, TRUE, &created);
+	get_nth_datablock(&dummy_inode, 3453468, TRUE, &created);
+	inode_write(number, &dummy_inode);
 	
 	/* Any other temporary test code can go here */
 	return 0;
@@ -63,7 +83,8 @@ int main(int argc, const char **argv){
 void print_inode(inode* inode){
 	printf("inode->mode:           %d\n", inode->mode);
 	printf("inode->links:          %d\n", inode->links);
-	printf("inode->owner_id:       %d\n", inode->owner_id);
+	printf("inode->uid:            %d\n", inode->uid);
+	printf("inode->gid:            %d\n", inode->gid);
 	printf("inode->size:           %d\n", inode->size);
 	printf("inode->access_time:    %d\n", inode->access_time);
 	printf("inode->mod_time:       %d\n", inode->mod_time);
@@ -139,7 +160,7 @@ int mkfs_size(){
 			expected_result = SUCCESS;
 		}
 		
-		actual_result = mkfs(test_value);
+		actual_result = mkfs(test_value, 0, 0);
 		if (disk != NULL){
 			free(disk);
 		}
@@ -169,7 +190,7 @@ int lots_inodes(){
 	
 	int BLOCKS = 400;
 
-	mkfs(BLOCKS);
+	mkfs(BLOCKS, 0, 0);
 	superblock sb;
 	read_superblock(&sb);
 	
@@ -208,5 +229,102 @@ int lots_inodes(){
 		return TEST_FAILED;
 	}
 
+	return TEST_PASSED;
+}
+
+/* PURPOSE:
+ *   - Confirm that get_nth_datablock works as intended for reading and writing for direct and single indirect blocks
+ * METHODOLOGY:
+ *   - Call get_nth on a datablock with create true, then call it with create false
+ * EXPECTED RESULTS:
+ *   - First call to get_nth creates the data block with created set
+ *   - Second call returns the same data block with created not set
+ */
+int get_nth_1(){
+	printf("%30s", "MK_READ_DATA_BLOCKS_1");
+	fflush(stdout);
+	
+	int test_blocks = (NUM_DIRECT + ADDRESSES_PER_BLOCK) * 5;
+	int fs_blocks = test_blocks * 2;
+
+	int number, expected, actual, created;
+	mkfs(fs_blocks, 0, 0);
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+
+	inode_create(&dummy_inode, &number);
+	
+	int i;
+	for (i = 0; i < test_blocks; i++){
+		created = FALSE;
+		
+		/* Call it twice on the same index */
+		actual = get_nth_datablock(&dummy_inode, i, TRUE, &created);
+		expected = get_nth_datablock(&dummy_inode, i, FALSE, &created);
+		
+		/* Compare the results */
+		if (created == FALSE || actual != expected){
+			free(disk);
+			return TEST_FAILED;
+		}
+	}
+	
+	free(disk);
+	return TEST_PASSED;
+}
+
+/* PURPOSE:
+ *   - Confirm that get_nth_datablock works as intended for reading and writing for random blocks (mostly triple indirect)
+ * METHODOLOGY:
+ *   - Call get_nth on a datablock with create true, then call it with create false
+ * EXPECTED RESULTS:
+ *   - First call to get_nth creates the data block
+ *   - Second call returns the same data block with created not set
+ */
+int get_nth_2(){
+	printf("%30s", "MK_READ_DATA_BLOCKS_2");
+	fflush(stdout);
+	
+	int max_n = 50000000;
+	int test_blocks = 10000;
+	int fs_blocks = test_blocks * 5;
+	
+	int n_to_use;
+	int ns[test_blocks];
+	int addrs[test_blocks];
+
+	int number, created;
+	mkfs(fs_blocks, 0, 0);
+
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+	inode_create(&dummy_inode, &number);
+	
+	/* Call it many times with random values */
+	int i;
+	for (i = 0; i < test_blocks; i++){
+		n_to_use = rand() % max_n;
+		
+		ns[i] = n_to_use;
+		addrs[i] = get_nth_datablock(&dummy_inode, n_to_use, TRUE, &created);
+	}
+
+	/* Re-call it with the same n values, expecting the same addr values and created = FALSE */
+	created = FALSE;
+	for (i = 0; i < test_blocks; i++){
+		n_to_use = ns[i];
+
+		if (get_nth_datablock(&dummy_inode, n_to_use, FALSE, &created) != addrs[i]){
+			free(disk);
+			return TEST_FAILED;
+		}
+	}
+	
+	if (created != FALSE){
+		free(disk);
+		return TEST_FAILED;
+	}
+	
+	free(disk);
 	return TEST_PASSED;
 }

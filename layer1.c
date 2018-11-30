@@ -16,10 +16,11 @@
  *   TOTALBLOCKS_INVALID - blocks is a negative number
  *   FS_TOO_SMALL        - blocks is smaller than MIN_BLOCKS
  *   BLOCKSIZE_TOO_SMALL - can't fit an inode into a single block
+ *   BAD_UID             - provided uid is negative
  *   UNEXPECTED_ERROR    - malloc error
  *   SUCCESS             - filesystem was created
  */
-int mkfs(int blocks){
+int mkfs(int blocks, int root_uid, int root_gid){
 	if (blocks < 0){
 		ERR(fprintf(stderr, "ERR: mkfs: blocks is invalid\n"));
 		ERR(fprintf(stderr, "  blocks: %d\n", blocks));
@@ -35,8 +36,15 @@ int mkfs(int blocks){
 	if (sizeof(inode) > BLOCK_SIZE){
 		ERR(fprintf(stderr, "ERR: mkfs: can't fit an inode on a single block\n"));
 		ERR(fprintf(stderr, "  sizeof(inode): %d\n", sizeof(inode)));
-		ERR(fprintf(stderr, "  BLOCK_SIZE: %d\n", BLOCK_SIZE));
+		ERR(fprintf(stderr, "  BLOCK_SIZE:    %d\n", BLOCK_SIZE));
 		return BLOCKSIZE_TOO_SMALL;
+	}
+	
+	if (root_uid < 0 || root_gid < 0){
+		ERR(fprintf(stderr, "ERR: mkfs: invalid uid or gid\n"));
+		ERR(fprintf(stderr, "  root_uid: %d\n", root_uid));
+		ERR(fprintf(stderr, "  root_gid: %d\n", root_gid));
+		return BAD_UID;
 	}
 
 	/************************ CREATE IN-MEMORY DISK ************************/
@@ -72,7 +80,7 @@ int mkfs(int blocks){
 	
 	/* Create the root inode */
 	int root_inode = 0;
-	create_dir_base(&root_inode, S_IFDIR | S_IRWXU | S_IRGRP | S_IROTH, ROOT_UID, INVALID_INODE);
+	create_dir_base(&root_inode, S_IFDIR | S_IRWXU | S_IRGRP | S_IROTH, root_uid, root_gid, INVALID_INODE);
 	
 	superblock sb;
 	read_superblock(&sb);
@@ -96,7 +104,7 @@ int mkfs(int blocks){
  *   ILIST_FULL         - no room for the inode
  *   SUCCESS            - superblock was created
  */
-int create_dir_base(int* inode_num, mode_t mode, int owner_id, int parent_inum){
+int create_dir_base(int* inode_num, mode_t mode, int uid, int gid, int parent_inum){
 	int ret;
 	
 	/* Get an inode */
@@ -127,7 +135,7 @@ int create_dir_base(int* inode_num, mode_t mode, int owner_id, int parent_inum){
 	
 	d.dir_ents[0] = dot;
 	d.dir_ents[1] = dot_dot;
-	ret = data_allocate((uint8_t*)&d, &data_num);
+	ret = data_allocate(&d, &data_num);
 	if (ret != SUCCESS){
 		DEBUG(DB_MKDIRBASE, printf("DEBUG: create_dir_base: couldn't allocate datablock\n"));
 		return ret;
@@ -136,7 +144,8 @@ int create_dir_base(int* inode_num, mode_t mode, int owner_id, int parent_inum){
 	/* Initialize the inode */
 	memset(&new_dir, 0, sizeof(inode));
 	new_dir.mode = mode;
-	new_dir.owner_id = owner_id;
+	new_dir.uid = uid;
+	new_dir.gid = gid;
 	new_dir.size = 2 * sizeof(dir_ent); /* Should never be more than one block, or we have a problem */
 	new_dir.direct_blocks[0] = data_num;
 	inode_write(my_inode, &new_dir);
@@ -262,7 +271,7 @@ int init_freelist(){
 		DEBUG(DB_FREELIST, printf("  next_loc: %d\n", cur.next));
 		
 		/* Write the node */
-		if (data_write(node_loc, (uint8_t*)&cur) != SUCCESS){
+		if (data_write(node_loc, &cur) != SUCCESS){
 			return DISC_UNINITIALIZED;
 		}
 	}
@@ -345,7 +354,7 @@ int inode_read(int inode_num, inode* readNode){
 	int total_block_offset = sb.ilist_block_offset + inode_block_num;
 	
 	iblock block;
-	readBlock(total_block_offset, (uint8_t*)&block);
+	readBlock(total_block_offset, &block);
 
 	DEBUG(DB_INODEREAD, printf("DEBUG: inode_read: reading an inode\n"));
 	DEBUG(DB_INODEREAD, printf("  inode_num:                     %d\n", inode_num));
@@ -403,7 +412,7 @@ int inode_write(int inode_num, inode* modified){
 	int total_block_offset = sb.ilist_block_offset + inode_block_num;
 	
 	iblock block;
-	readBlock(total_block_offset, (uint8_t*)&block);
+	readBlock(total_block_offset, &block);
 
 	DEBUG(DB_INODEWRITE, printf("DEBUG: inode_write: writing an inode\n"));
 	DEBUG(DB_INODEWRITE, printf("  inode_num:                     %d\n", inode_num));
@@ -416,7 +425,7 @@ int inode_write(int inode_num, inode* modified){
 	
 	memcpy(&block.inodes[inode_in_block], modified, sizeof(inode));
 	
-	return writeBlock(total_block_offset, (uint8_t*)&block);
+	return writeBlock(total_block_offset, &block);
 }
 
 /* Marks an inode as free in the ibitmap
@@ -572,7 +581,7 @@ int inode_create(inode* newNode, int* inode_num){
  *   BUF_NULL           - readBuf is null
  *   SUCCESS            - block was read
  */
-int data_read(int data_block_num, uint8_t* readBuf){
+int data_read(int data_block_num, void* readBuf){
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -582,12 +591,18 @@ int data_read(int data_block_num, uint8_t* readBuf){
 		return DISC_UNINITIALIZED;
 	}
 	
-	if (data_block_num <= 0 || data_block_num > sb.data_size){
+	if (data_block_num < 0 || data_block_num > sb.data_size){
 		ERR(fprintf(stderr, "ERR: data_read: data_block_num invalid\n"));
 		ERR(fprintf(stderr, "  data_block_num:  %d\n", data_block_num));
 		ERR(fprintf(stderr, "  min (exclusive): %d\n", 0));
 		ERR(fprintf(stderr, "  max (inclusive): %d\n", sb.data_size));
 		return INVALID_BLOCK;
+	}
+	
+	/* Reading the 0-block returns all 0s */
+	if (data_block_num == 0){
+		memset(readBuf, 0, BLOCK_SIZE);
+		return SUCCESS;
 	}
 	
 	int total_offset = sb.data_block_offset + data_block_num - 1;
@@ -611,7 +626,7 @@ int data_read(int data_block_num, uint8_t* readBuf){
  *   BUF_NULL           - writeBuf is null
  *   SUCCESS            - block was written
  */
-int data_write(int data_block_num, uint8_t* writeBuf){ //TODO: it's possible writeBuf should be a void pointer //TODO: fix camelCase + disk vs disc
+int data_write(int data_block_num, void* writeBuf){ //TODO: fix camelCase + disk vs disc
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -679,7 +694,7 @@ int data_free(int data_block_num){
 	int i;
 	while(cur_loc != INVALID_DATA){
 		/* Read the free list node */
-		data_read(cur_loc, (uint8_t*)&cur_node);
+		data_read(cur_loc, &cur_node);
 		
 		/* Scan it for a spot to put our free'd block on */
 		for (i = 0; i < ADDR_PER_NODE; i++){
@@ -714,7 +729,7 @@ int data_free(int data_block_num){
 	DEBUG(DB_DATAFREE, printf("  cur_node.next:     %d\n", cur_node.next));
 
 	/* Write the changes to disk */
-	data_write(data_block_num, (uint8_t*)&cur_node);
+	data_write(data_block_num, &cur_node);
 	write_superblock(&sb);
 
 	return SUCCESS;
@@ -731,7 +746,7 @@ int data_free(int data_block_num){
  *   DATA_FULL          - filesystem is full
  *   SUCCESS            - a block was found and returned
  */
-int data_allocate(uint8_t* newData, int* data_block_num){
+int data_allocate(void* newData, int* data_block_num){
 	superblock sb;
 
 	int ret = read_superblock(&sb);
@@ -748,7 +763,7 @@ int data_allocate(uint8_t* newData, int* data_block_num){
 	
 	/* Look at the first node of the freelist */
 	freelist_node cur;
-	data_read(sb.free_list_head, (uint8_t*)&cur);
+	data_read(sb.free_list_head, &cur);
 	
 	DEBUG(DB_DATAALL, printf("DEBUG: data_allocate: checking freelist head\n"));
 	DEBUG(DB_DATAALL, printf("  sb.free_list_head: %d\n", sb.free_list_head));
@@ -761,7 +776,7 @@ int data_allocate(uint8_t* newData, int* data_block_num){
 		if (cur.addr[i] != INVALID_DATA){
 			*data_block_num = cur.addr[i];
 			cur.addr[i] = INVALID_DATA;
-			data_write(sb.free_list_head, (uint8_t*)&cur);
+			data_write(sb.free_list_head, &cur);
 			
 			DEBUG(DB_DATAALL, printf("  i:                 %d\n", i));
 			DEBUG(DB_DATAALL, printf("  *data_block_num:   %d\n", *data_block_num));

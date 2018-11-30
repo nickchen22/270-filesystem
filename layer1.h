@@ -26,7 +26,6 @@
 
 #define BITS_PER_BLOCK (BLOCK_SIZE * 8)
 
-#define ROOT_UID 0
 #define ROOT_INODE 1
 #define ROOT_FREELIST 1
 #define INVALID_INODE 0
@@ -61,14 +60,16 @@ typedef struct __attribute__((__packed__)) superblock {
 
 typedef struct __attribute__((__packed__)) inode {
 	mode_t mode;
-	uint32_t links;
-	uint32_t owner_id;
+	uint32_t links; //currently unused
+	uint32_t uid;
+	uint32_t gid;
 	uint32_t size;
-	uint32_t access_time;
-	uint32_t mod_time;
+	uint32_t access_time; //currently unused
+	uint32_t mod_time; //currently unused
 	uint32_t direct_blocks[NUM_DIRECT];
 	uint32_t indirect;
 	uint32_t double_indirect;
+	uint32_t triple_indirect;
 	
 	uint8_t padding[0];
 } inode;
@@ -86,21 +87,21 @@ typedef struct __attribute__((__packed__)) freelist_node {
 	uint8_t padding[REMAINDER];
 } freelist_node;
 
-int mkfs(int blocks);
+int mkfs(int blocks, int root_uid, int root_gid);
 int init_superblock(int blocks);
 int init_freelist();
 int init_ibitmap();
-int create_dir_base(int* inode_num, mode_t mode, int owner_id, int parent_inum);
+int create_dir_base(int* inode_num, mode_t mode, int uid, int gid, int parent_inum);
 
 int inode_read(int inode_num, inode* readNode);
 int inode_write(int inode_num, inode* modified);
 int inode_free(int inode_num);
 int inode_create(inode* newNode, int* inode_num);
 
-int data_read(int data_block_num, uint8_t* readBuf);
-int data_write(int data_block_num, uint8_t* writeBuf);
+int data_read(int data_block_num, void* readBuf);
+int data_write(int data_block_num, void* writeBuf);
 int data_free(int data_block_num);
-int data_allocate(uint8_t* newData, int* data_block_num);
+int data_allocate(void* newData, int* data_block_num);
 
 int read_superblock(superblock* sb);
 int write_superblock(superblock* sb);
