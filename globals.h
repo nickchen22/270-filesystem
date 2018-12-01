@@ -57,6 +57,8 @@
 
 #define DB_GETNTH 2001
 #define DB_READI 2002
+#define DB_RMNTH 2003
+#define DB_WRITEI 2004
 
 #define TRUE 1
 #define FALSE 0

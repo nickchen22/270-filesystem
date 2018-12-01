@@ -30,8 +30,10 @@ int mkdir(const char *pathname, mode_t mode);
 int mknod(const char *pathname, mode_t mode, dev_t dev);
 
 int read_i(int inum, void* buf, int offset, size_t size);
+int write_i(int inum, void* buf, int offset, size_t size);
 
 int get_nth_datablock(inode* inod, int n, int create, int* created);
+int rm_nth_datablock(inode* inod, int n);
 int intPow(int x, int y);
 
 #endif

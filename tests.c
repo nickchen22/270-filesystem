@@ -15,10 +15,14 @@ int lots_inodes_free_all();
 int free_nonexistent_inode();
 int get_nth_1();
 int get_nth_2();
+int write_read_file();
+int write_read_file_offset();
+int overwrite_with_zeros();
+int write_on_small_fs_1();
 void print_inode(inode* inode);
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {mkfs_size, lots_inodes, lots_inodes_free_some, free_nonexistent_inode, get_nth_1, get_nth_2};
+	int (*tests[])() = {mkfs_size, lots_inodes, lots_inodes_free_some, free_nonexistent_inode, get_nth_1, get_nth_2, write_read_file, write_read_file_offset, overwrite_with_zeros, write_on_small_fs_1};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
 	srand(time(NULL));
@@ -59,24 +63,6 @@ int main(int argc, const char **argv){
 
 
 	/* Any other temporary test code can go here */
-	
-	mkfs(400, 0, 0);
-	uint8_t buf[1000000];
-	
-	//dirblock d;
-	inode dummy_inode;
-	int number;
-
-	dummy_inode.size = 10000000;
-	inode_create(&dummy_inode, &number);
-
-	read_i(number, &buf, 34, BLOCK_SIZE);
-
-	int created = FALSE;
-	get_nth_datablock(&dummy_inode, 3453467, TRUE, &created);
-	get_nth_datablock(&dummy_inode, 3453468, TRUE, &created);
-	get_nth_datablock(&dummy_inode, 3453468, TRUE, &created);
-	inode_write(number, &dummy_inode);
 	
 	/* Any other temporary test code can go here */
 	return 0;
@@ -530,4 +516,201 @@ int get_nth_2(){
 	
 	free(disk);
 	return TEST_PASSED;
+}
+
+/* PURPOSE:
+ *   - Confirm that writing a file and then immediately reading it works
+ * METHODOLOGY:
+ *   - Create a file with random digits, write it, and read it back
+ * EXPECTED RESULTS:
+ *   - The same data written will be read back
+ */
+int write_read_file(){
+	printf("%30s", "WRITE_READ_FILE_RAND");
+	fflush(stdout);
+	
+	mkfs(20000, 0, 0);
+	
+	int size = BLOCK_SIZE * (rand() % 1000);
+	size += rand() % BLOCK_SIZE;
+	
+	uint8_t expected_result[size];
+	uint8_t actual_result[size];
+	
+	int i;
+	for (i = 0; i < size; i++){
+		expected_result[i] = rand() % 256;
+	}
+	
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+	
+	int number;
+	inode_create(&dummy_inode, &number);
+	
+	write_i(number, expected_result, 0, size);
+	read_i(number, actual_result, 0, size);
+	
+	if (memcmp(expected_result, actual_result, size) == 0){
+		free(disk);
+		return TEST_PASSED;
+	}
+
+	free(disk);
+	return TEST_FAILED;
+}
+
+/* PURPOSE:
+ *   - Confirm that writing a file and then immediately reading it works when used with an offset
+ * METHODOLOGY:
+ *   - Create a file with random digits, write it, and read it back
+ * EXPECTED RESULTS:
+ *   - The same data written will be read back
+ */
+int write_read_file_offset(){
+	printf("%30s", "WRITE_READ_FILE_RAND_OFFSET");
+	fflush(stdout);
+	
+	mkfs(20000, 0, 0);
+	
+	int size = BLOCK_SIZE * (rand() % 1000);
+	size += rand() % BLOCK_SIZE;
+	
+	int offset = rand() % size;
+	
+	uint8_t expected_result[size];
+	uint8_t actual_result[size];
+	
+	int i;
+	for (i = 0; i < size; i++){
+		expected_result[i] = rand() % 256;
+	}
+	
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+	
+	int number;
+	inode_create(&dummy_inode, &number);
+	
+	write_i(number, expected_result, 0, size);
+	read_i(number, actual_result, offset, size - offset);
+	
+	if (memcmp((void*)((uintptr_t)expected_result + (uintptr_t)offset), actual_result, size - offset) == 0){
+		free(disk);
+		return TEST_PASSED;
+	}
+	
+	free(disk);
+	return TEST_FAILED;
+}
+
+/* PURPOSE:
+ *   - Confirm that writing 0s to a file deletes it
+ * METHODOLOGY:
+ *   - Create a file with random digits, write to it, write 0s over previous write, check inode fields
+ * EXPECTED RESULTS:
+ *   - The inode will be empty
+ */
+int overwrite_with_zeros(){
+	printf("%30s", "OVERWRITE_WITH_ZERO");
+	fflush(stdout);
+	
+	mkfs(20000, 0, 0);
+	
+	int size = BLOCK_SIZE * (rand() % 30);
+	size += rand() % BLOCK_SIZE;
+	
+	uint8_t zero_buf[size];
+	memset(zero_buf, 0, size);
+	
+	uint8_t rand_buf[size];
+	uint8_t actual_result[size];
+	
+	int i;
+	for (i = 0; i < size; i++){
+		rand_buf[i] = rand() % 256;
+	}
+	
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+	
+	int number;
+	inode_create(&dummy_inode, &number);
+	
+	int j, offset;
+	for (j = 0; j < 100; j++){
+		offset = BLOCK_SIZE * (rand() % 80000);
+		offset += rand() % BLOCK_SIZE;
+
+		write_i(number, rand_buf, offset, size);
+		write_i(number, zero_buf, offset, size);
+	
+		read_i(number, actual_result, offset, size);
+	
+		if (memcmp(zero_buf, actual_result, size) != 0){
+			return TEST_FAILED;
+		}
+	
+		inode_read(number, &dummy_inode);
+		for (i = 0; i < NUM_DIRECT; i++){
+			if (dummy_inode.direct_blocks[i] != 0){
+				return TEST_FAILED;
+			}
+		}
+	
+		if (dummy_inode.indirect != 0){
+			free(disk);
+			return TEST_FAILED;
+		}
+		if (dummy_inode.double_indirect != 0){
+			free(disk);
+			return TEST_FAILED;
+		}
+		if (dummy_inode.triple_indirect != 0){
+			free(disk);
+			return TEST_FAILED;
+		}
+	}
+	
+	free(disk);
+	return TEST_PASSED;
+}
+
+/* PURPOSE:
+ *   - Confirm that writing 0s to a file fully deletes it and makes room available for other filesystem
+ *   - Confirm that two adjacent double indirect blocks will share their chain
+ * METHODOLOGY:
+ *   - Write 2 blocks in a double indirect zone, delete them, re-write two blocks nearby
+ * EXPECTED RESULTS:
+ *   - FS data block usage will never exceed 4 blocks at any one time
+ */
+int write_on_small_fs_1(){
+	printf("%30s", "WRITES_ON_SMALL_FS_1");
+	fflush(stdout);
+	
+	mkfs(MIN_BLOCKS + 4, 0, 0);
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+	
+	int number, ret;
+	inode_create(&dummy_inode, &number);
+	int size = BLOCK_SIZE * 10;
+
+	uint8_t data_buf[size];
+	memset(data_buf, 1, size);
+	
+	uint8_t zero_buf[size];
+	memset(zero_buf, 0, size);
+
+	ret = write_i(number, data_buf, BLOCK_SIZE * (ADDRESSES_PER_BLOCK + NUM_DIRECT + 4), BLOCK_SIZE * 2);
+	
+	ret = write_i(number, zero_buf, BLOCK_SIZE * (ADDRESSES_PER_BLOCK + NUM_DIRECT + 4), BLOCK_SIZE * 2);
+	
+	ret = write_i(number, data_buf, BLOCK_SIZE * (ADDRESSES_PER_BLOCK + NUM_DIRECT + 8), BLOCK_SIZE * 2);
+	
+	if (ret == BLOCK_SIZE * 2){
+		return TEST_PASSED;
+	}
+	
+	return TEST_FAILED;
 }

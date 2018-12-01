@@ -700,10 +700,11 @@ int data_free(int data_block_num){
 		for (i = 0; i < ADDR_PER_NODE; i++){
 			if (cur_node.addr[i] == INVALID_DATA){
 				DEBUG(DB_DATAFREE, printf("DEBUG: data_free: found a spot\n"));
-				DEBUG(DB_DATAFREE, printf("  cur_loc: %d\n", cur_loc));
-				DEBUG(DB_DATAFREE, printf("  i:       %d\n", i));
+				DEBUG(DB_DATAFREE, printf("  cur_loc:          %d\n", cur_loc));
+				DEBUG(DB_DATAFREE, printf("  i:                %d\n", i));
 				
 				cur_node.addr[i] = data_block_num;
+				data_write(cur_loc, &cur_node);
 				return SUCCESS;
 			}
 		}
