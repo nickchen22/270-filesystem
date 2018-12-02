@@ -192,8 +192,8 @@ int oft_lookup(int fd, int* inode, int* flags){
  */
 int mkdir_fs(const char *pathname, mode_t mode, int uid, int gid){
 	/* Lookup path */
-	int parent_inum, target_inum, ret;
-	if ((ret = namei(pathname, uid, gid, &parent_inum, &target_inum)) != SUCCESS){
+	int parent_inum, target_inum, ret, index;
+	if ((ret = namei(pathname, uid, gid, &parent_inum, &target_inum, &index)) != SUCCESS){
 		ERR(fprintf(stderr, "ERR: mkdir_fs: error occured during lookup\n"));
 		ERR(fprintf(stderr, "  ret: %d\n", ret));
 		return ret;
@@ -250,8 +250,8 @@ int mkdir_fs(const char *pathname, mode_t mode, int uid, int gid){
  */
 int mknod_fs(const char *pathname, mode_t mode, int uid, int gid){
 	/* Lookup path */
-	int parent_inum, target_inum, ret;
-	if ((ret = namei(pathname, uid, gid, &parent_inum, &target_inum)) != SUCCESS){
+	int parent_inum, target_inum, ret, index;
+	if ((ret = namei(pathname, uid, gid, &parent_inum, &target_inum, &index)) != SUCCESS){
 		ERR(fprintf(stderr, "ERR: mknod_fs: error occured during lookup\n"));
 		ERR(fprintf(stderr, "  ret: %d\n", ret));
 		return ret;
@@ -276,6 +276,7 @@ int mknod_fs(const char *pathname, mode_t mode, int uid, int gid){
 	inode new_inode;
 	memset(&new_inode, 0, sizeof(inode));
 	new_inode.mode = S_IFREG | mode;
+	new_inode.mode &= (0xffff ^ (S_IFDIR));
 	new_inode.uid = uid;
 	new_inode.gid = gid;
 	if ((ret = inode_create(&new_inode, &new_inum)) != SUCCESS){
@@ -309,13 +310,14 @@ int mknod_fs(const char *pathname, mode_t mode, int uid, int gid){
  *   -ENAMETOOLONG - a component of the path had a name longer than 256 bytes
  *   SUCCESS       - the pathname was converted into parent_inum and target_inum
  */
-int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_inum){
+int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_inum, int* index){
 	char* path_copy = strdup(pathname);
 	const char delim[2] = "/";
 	
 	int read, write, exec;
 	*parent_inum = ROOT_INODE;
 	*target_inum = ROOT_INODE;
+	*index = 0;
 	int ret;
 	
 	char* token;
@@ -344,7 +346,7 @@ int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_
 		}
 
 		/* Look for the new target */
-		ret = search_by_name(*parent_inum, token, target_inum);
+		ret = search_by_name(*parent_inum, token, target_inum, index);
 		if (ret == NOT_DIR){
 			free(path_copy);
 			ERR(fprintf(stderr, "ERR: namei: error occured while parsing component\n"));
@@ -417,7 +419,7 @@ int check_permissions(int inum, int uid, int gid, int* read, int* write, int* ex
 		}
 	}
 
-	/* Check for owner */
+	/* Check for others */
 	if (my_inode.uid != uid && my_inode.gid != gid){
 		if ((S_IROTH & my_inode.mode) != 0){
 			*read = TRUE;
@@ -491,7 +493,8 @@ int search_by_inum(int inum, int search_num, int* index){
 
 /* Searches the directory at inum to find an entry matching name
  *
- * If the entry is found, target is set to its inode number
+ * If the entry is found, target is set to its inode number and index is set to
+ * its 0-indexed location in the parent directory
  *
  * Returns:
  *   DISC_UNINITIALIZED - no disk
@@ -500,7 +503,7 @@ int search_by_inum(int inum, int search_num, int* index){
  *   NOT_IN_DIR         - something with the name wasn't found
  *   SUCCESS            - was found, target was set
  */
-int search_by_name(int inum, const char *name, int* target){
+int search_by_name(int inum, const char *name, int* target, int* index){
 	if (name == NULL || target == NULL){
 		ERR(fprintf(stderr, "ERR: search_by_name: something is null\n"));
 		ERR(fprintf(stderr, "  name:   %p\n", name));
@@ -532,6 +535,7 @@ int search_by_name(int inum, const char *name, int* target){
 		if (read_dir_page(inum, &d, cur_block, &num_entries, &reached_end) == SUCCESS){
 			for (i = 0; i < num_entries; i++){
 				if (strncmp(name, d.dir_ents[i].name, FILEBUF_SIZE) == 0){
+					*index = cur_block * DIRENTS_PER_BLOCK + i;
 					*target = d.dir_ents[i].inode_num;
 					return SUCCESS;
 				}
@@ -1127,7 +1131,7 @@ int write_i(int inum, void* buf, off_t offset, size_t size){
 		
 		/* Update and write inode */
 		my_inode.size = MAX(original_size, offset + bytes_written);
-		my_inode.mode &= (0xffff ^ (S_ISUID || S_ISGID));
+		my_inode.mode &= (0xffff ^ (S_ISUID | S_ISGID));
 		inode_write(inum, &my_inode);
 	}
 

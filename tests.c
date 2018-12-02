@@ -92,7 +92,7 @@ int main(int argc, const char **argv){
 	oft_attempt_delete(4);
 	oft_remove(10);
 	
-	read_dir_page(2, (dirblock*)array, 0, &entries, &last);
+	read_dir_page(1, (dirblock*)array, 1, &entries, &last);
 	
 	printf("entries: %d, last: %d\n", entries, last);
 	
@@ -101,12 +101,12 @@ int main(int argc, const char **argv){
 	}
 	
 	int target;
-	int parent, ret;
-	if ((ret = namei("/asdf", 5, 5, &parent, &target)) == SUCCESS){
-		printf("%d\n", target);
+	int parent, ret, index;
+	if ((ret = namei("/dir", 8, 8, &parent, &target, &index)) == SUCCESS){
+		printf("namei success %d %d\n", target, index);
 	}
 	else{
-		printf("%d\n", ret);
+		printf("namei failed %d\n", ret);
 	}
 	
 	printf("oft_inodes_size = %d\n", oft_inodes_size);

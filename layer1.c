@@ -138,6 +138,7 @@ int create_dir_base(int* inode_num, mode_t mode, int uid, int gid, int parent_in
 	d.dir_ents[1] = dot_dot;
 	ret = data_allocate(&d, &data_num);
 	if (ret != SUCCESS){
+		inode_free(my_inode);
 		DEBUG(DB_MKDIRBASE, printf("DEBUG: create_dir_base: couldn't allocate datablock\n"));
 		return ret;
 	}
@@ -145,6 +146,7 @@ int create_dir_base(int* inode_num, mode_t mode, int uid, int gid, int parent_in
 	/* Initialize the inode */
 	memset(&new_dir, 0, sizeof(inode));
 	new_dir.mode = S_IFDIR | mode;
+	new_dir.mode &= (0xffff ^ (S_IFREG));
 	new_dir.uid = uid;
 	new_dir.gid = gid;
 	new_dir.size = 2 * sizeof(dir_ent); /* Should never be more than one block, or we have a problem */

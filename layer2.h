@@ -63,11 +63,11 @@ int mkdir_fs(const char *pathname, mode_t mode, int uid, int gid);
 int mknod_fs(const char *pathname, mode_t mode, int uid, int gid);
 
 int check_permissions(int inum, int uid, int gid, int* read, int* write, int* exec);
-int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_inum);
+int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_inum, int* index);
 
 int add_dirent(int inum, dir_ent* d);
 int remove_dirent(int inum, int index);
-int search_by_name(int inum, const char *name, int* target);
+int search_by_name(int inum, const char *name, int* target, int* index);
 int search_by_inum(int inum, int search_num, int* index);
 int read_dir_whole(int inum, dir_ent* buf);
 int read_dir_page(int inum, dirblock* d, int page, int* entries, int* last);
