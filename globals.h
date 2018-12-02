@@ -22,6 +22,11 @@
 #define BAD_INODE -1005
 #define ILIST_FULL -1007
 #define BAD_UID -1008
+#define MALFORMED_DIRECTORY -2009
+#define NOT_DIR -2010
+#define BAD_INDEX -2011
+#define NOT_IN_DIR -2012
+#define INVALID_PAGE -2013
 
 #define DISC_UNINITIALIZED -1
 #define INVALID_BLOCK -2

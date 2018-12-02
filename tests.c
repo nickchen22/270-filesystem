@@ -63,6 +63,47 @@ int main(int argc, const char **argv){
 
 
 	/* Any other temporary test code can go here */
+	mkfs(400, 0, 0);
+	
+	dir_ent array[100];
+	dir_ent d;
+	strcpy(d.name, "hello world");
+	
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(dummy_inode));
+
+	for (i = 34; i < 50; i++){
+		d.inode_num = i;
+		add_dirent(1, &d);
+	}
+	
+	for (i = 0; i < 53; i++){
+		remove_dirent(1, 400);
+	}
+
+	int entries = 0, last = 23;
+	
+	printf("result = %d\n", mkdir_fs("/dir", S_IRWXU | S_IRWXG | S_IRWXO, 0, 0));
+	printf("result = %d\n", mknod_fs("/file", S_IRWXU | S_IRWXG | S_IRWXO, 0, 0));
+	printf("result = %d\n", mkdir_fs("/dir/sdf", S_IRWXU | S_IRWXG | S_IRWXO, 0, 0));
+	printf("result = %d\n", mkdir_fs("/asdf/sdf", S_IRWXU | S_IRWXG | S_IRWXO, 0, 0));
+	
+	read_dir_page(2, (dirblock*)array, 0, &entries, &last);
+	
+	printf("entries: %d, last: %d\n", entries, last);
+	
+	for (i = 0; i < entries; i++){
+		printf("%s: %d\n", array[i].name, array[i].inode_num);
+	}
+	
+	int target;
+	int parent, ret;
+	if ((ret = namei("/asdf", 5, 5, &parent, &target)) == SUCCESS){
+		printf("%d\n", target);
+	}
+	else{
+		printf("%d\n", ret);
+	}
 	
 	/* Any other temporary test code can go here */
 	return 0;
@@ -705,9 +746,11 @@ int write_on_small_fs_1(){
 	ret = write_i(number, data_buf, BLOCK_SIZE * (ADDRESSES_PER_BLOCK + NUM_DIRECT + 4), BLOCK_SIZE * 2);
 	
 	ret = write_i(number, zero_buf, BLOCK_SIZE * (ADDRESSES_PER_BLOCK + NUM_DIRECT + 4), BLOCK_SIZE * 2);
+	//ret = truncate(number, 0);
 	
 	ret = write_i(number, data_buf, BLOCK_SIZE * (ADDRESSES_PER_BLOCK + NUM_DIRECT + 8), BLOCK_SIZE * 2);
 	
+	free(disk);
 	if (ret == BLOCK_SIZE * 2){
 		return TEST_PASSED;
 	}

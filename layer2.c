@@ -4,57 +4,269 @@
 #include "layer2.h"
 
 //TODO: not currently bothering with link count, dev, times
+//TODO: assuming file paths do not contain ., .., or a / at the end
+//TODO: change things to uints where appropriate? update names as well
+//TODO: rmdir?
+//TODO: make sure writeback caching disabled
+//TODO: fix truncate on full fs
+//TODO: write resets SUID SGID bits?
 
 /* mkdir() attempts to create a directory named pathname
  *
  * Assumes that the initial directory elements will fit in a block
  *
  * Returns:
- *   DISC_UNINITIALIZED - FS hasn't been set up yet
- *   BAD_INODE          - not a valid inode in this fs
- *   BUF_NULL           - readNode is null
- *   SUCCESS            - block was read
+ *   -EACCES       - a component of the path didn't have rx permissions
+ *   -ENOENT       - a component of the path didn't exist
+ *   -ENOTDIR      - a component of the path wasn't a directory
+ *   -ENAMETOOLONG - a component of the path had a name longer than 256 bytes
+ *   -ENOSPC       - no room in FS for the new file or directory entry
+ *   SUCCESS       - directory was created
  */
-int mkdir(const char *pathname, mode_t mode){ // mkdir - create a default directory
-	//1. run namei on the base path to check for rwx permissions
-	//2. create a default dir object
-	//3. add default dir object to directory found in step 1 with name from step 1
-
-
-	dir_ent dot;
-	strcpy(dot.name, ".");
-	dot.inode_num = 3;
-	
-	dir_ent dotdot;
-	
-	
-	inode new_dir;
-	new_dir.mode = S_IFREG & S_IRWXU; // regular file and RWX permissions
-	new_dir.links = 0;
-	new_dir.size = 200;  // size of the file this inode belongs to is less than one block size
-	new_dir.access_time = 0;
-	new_dir.mod_time = 0;
-	int i;
-	new_dir.direct_blocks[0] = 0;
-	for (i = 1; i < 10; i ++){
-		new_dir.direct_blocks[i] = 0; // assumes addresses with 0 are unused
+int mkdir_fs(const char *pathname, mode_t mode, int uid, int gid){
+	/* Lookup path */
+	int parent_inum, target_inum, ret;
+	if ((ret = namei(pathname, uid, gid, &parent_inum, &target_inum)) != SUCCESS){
+		ERR(fprintf(stderr, "ERR: mkdir_fs: error occured during lookup\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return ret;
 	}
-	new_dir.indirect = 0;
-	new_dir.double_indirect = 0;
-}
+	
+	/* Check the parent node for rwx permissions */
+	int read, write, exec;
+	check_permissions(parent_inum, uid, gid, &read, &write, &exec);
+	if (!read || !exec || !write){
+		ERR(fprintf(stderr, "ERR: mkdir_fs: parent didn't have rwx permissions\n"));
+		return -EACCES;
+	}
 
-//mknod - create a default inode
+	/* Check that target doesn't already exist */
+	if (target_inum != 0){
+		ERR(fprintf(stderr, "ERR: mkdir_fs: target already exists\n"));
+		return -EEXIST;
+	}
 
-//add to directory - gets current size, writes new entry at that offset?
-//remove from directory - when you delete something, it moves the thing at the end to that spot?
-//search directory
+	/* Create a default directory object, if there's rooom */
+	int new_inum;
+	if ((ret = create_dir_base(&new_inum, mode, uid, gid, parent_inum)) != SUCCESS){
+		ERR(fprintf(stderr, "ERR: mkdir_fs: no space for new directory\n"));
+		return -ENOSPC;
+	}
 
-// all permissions checking done here
-int namei(const char *pathname, int uid, int gid, int must_exist){
+	/* Relies on assumption that no provided filepath will end in / */
+	char* target_name = strrchr(pathname, '/') + 1;
+	dir_ent new;
+	new.inode_num = new_inum;
+	strncpy(new.name, target_name, FILEBUF_SIZE);
+	
+	/* Add the new entry to the parent directory */
+	if (add_dirent(parent_inum, &new) != sizeof(dir_ent)){
+		ERR(fprintf(stderr, "ERR: mkdir_fs: no space for new entry in old directory\n"));
+		del(new_inum);
+		return -ENOSPC;
+	}
+
 	return SUCCESS;
 }
 
-//unlink - consults open file table about removal of a file
+/* mknod() attempts to create a file named pathname
+ *
+ * Assumes that the initial directory elements will fit in a block
+ *
+ * Returns:
+ *   -EACCES       - a component of the path didn't have rx permissions
+ *   -ENOENT       - a component of the path didn't exist
+ *   -ENOTDIR      - a component of the path wasn't a directory
+ *   -ENAMETOOLONG - a component of the path had a name longer than 256 bytes
+ *   -ENOSPC       - no room in FS for the new file or directory entry
+ *   SUCCESS       - file was created
+ */
+int mknod_fs(const char *pathname, mode_t mode, int uid, int gid){
+	/* Lookup path */
+	int parent_inum, target_inum, ret;
+	if ((ret = namei(pathname, uid, gid, &parent_inum, &target_inum)) != SUCCESS){
+		ERR(fprintf(stderr, "ERR: mknod_fs: error occured during lookup\n"));
+		ERR(fprintf(stderr, "  ret: %d\n", ret));
+		return ret;
+	}
+	
+	/* Check the parent node for rwx permissions */
+	int read, write, exec;
+	check_permissions(parent_inum, uid, gid, &read, &write, &exec);
+	if (!read || !exec || !write){
+		ERR(fprintf(stderr, "ERR: mknod_fs: parent didn't have rwx permissions\n"));
+		return -EACCES;
+	}
+
+	/* Check that target doesn't already exist */
+	if (target_inum != 0){
+		ERR(fprintf(stderr, "ERR: mknod_fs: target already exists\n"));
+		return -EEXIST;
+	}
+
+	/* Create a default inode object, if there's rooom */
+	int new_inum;
+	inode new_inode;
+	memset(&new_inode, 0, sizeof(inode));
+	new_inode.mode = S_IFREG | mode;
+	new_inode.uid = uid;
+	new_inode.gid = gid;
+	if ((ret = inode_create(&new_inode, &new_inum)) != SUCCESS){
+		ERR(fprintf(stderr, "ERR: mknod_fs: no space for new directory\n"));
+		return -ENOSPC;
+	}
+
+	/* Relies on assumption that no provided filepath will end in / */
+	char* target_name = strrchr(pathname, '/') + 1;
+	dir_ent new;
+	new.inode_num = new_inum;
+	strncpy(new.name, target_name, FILEBUF_SIZE);
+	
+	/* Add the new entry to the parent directory */
+	if (add_dirent(parent_inum, &new) != sizeof(dir_ent)){
+		ERR(fprintf(stderr, "ERR: mknod_fs: no space for new entry in old directory\n"));
+		del(new_inum);
+		return -ENOSPC;
+	}
+
+	return SUCCESS;
+}
+
+/* Converts a pathname into a parent inum and a target inum. If the target inum
+ * doesn't currently exist, it will be set to 0
+ *
+ * Returns:
+ *   -EACCES       - a component of the path didn't have rx permissions
+ *   -ENOENT       - a component of the path didn't exist
+ *   -ENOTDIR      - a component of the path wasn't a directory
+ *   -ENAMETOOLONG - a component of the path had a name longer than 256 bytes
+ *   SUCCESS       - the pathname was converted into parent_inum and target_inum
+ */
+int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_inum){
+	char* path_copy = strdup(pathname);
+	const char delim[2] = "/";
+	
+	int read, write, exec;
+	*parent_inum = ROOT_INODE;
+	*target_inum = ROOT_INODE;
+	int ret;
+	
+	char* token;
+
+	token = strtok(path_copy, delim);
+	while (token != NULL){ //there's more
+		/* Evaluate the old target */
+		*parent_inum = *target_inum;
+		if (*parent_inum == 0){
+			free(path_copy);
+			ERR(fprintf(stderr, "ERR: namei: couldn't find a path component\n"));
+			return -ENOENT;
+		}
+		if (strlen(token) > MAX_FILENAME){
+			free(path_copy);
+			ERR(fprintf(stderr, "ERR: namei: component's name is too long\n"));
+			return -ENAMETOOLONG;
+		}
+
+		/* Check the parent node for search permissions */
+		check_permissions(*parent_inum, uid, gid, &read, &write, &exec);
+		if (!read || !exec){
+			free(path_copy);
+			ERR(fprintf(stderr, "ERR: namei: component didn't have rx permissions\n"));
+			return -EACCES;
+		}
+
+		/* Look for the new target */
+		ret = search_by_name(*parent_inum, token, target_inum);
+		if (ret == NOT_DIR){
+			free(path_copy);
+			ERR(fprintf(stderr, "ERR: namei: error occured while parsing component\n"));
+			return -ENOTDIR;
+		}
+		else if (ret == NOT_IN_DIR){
+			*target_inum = 0;
+		}
+
+		token = strtok(NULL, delim);
+	}
+	
+	free(path_copy);
+	return SUCCESS;
+}
+
+/* Checks to see if a file can be read/written/exected by a uid + gid
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - no disk
+ *   BUF_NULL           - an input was null
+ *   SUCCESS            - read, write, exec were set
+ */
+int check_permissions(int inum, int uid, int gid, int* read, int* write, int* exec){
+	if (read == NULL || write == NULL || exec == NULL){
+		ERR(fprintf(stderr, "ERR: check_permissions: something is null\n"));
+		ERR(fprintf(stderr, "  read:   %p\n", read));
+		ERR(fprintf(stderr, "  write:  %p\n", write));
+		ERR(fprintf(stderr, "  exec:   %p\n", exec));
+		return BUF_NULL;
+	}
+	
+	*read = FALSE;
+	*write = FALSE;
+	*exec = FALSE;
+
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: has_rx_permissions: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+
+	/* Check for owner */
+	if (my_inode.uid == uid){
+		if ((S_IRUSR & my_inode.mode) != 0){
+			*read = TRUE;
+		}
+		if ((S_IWUSR & my_inode.mode) != 0){
+			*write = TRUE;
+		}
+		if ((S_IXUSR & my_inode.mode) != 0){
+			*exec = TRUE;
+		}
+	}
+
+	/* Check for group members */
+	if (my_inode.gid == gid){
+		if ((S_IRGRP & my_inode.mode) != 0){
+			*read = TRUE;
+		}
+		if ((S_IWGRP & my_inode.mode) != 0){
+			*write = TRUE;
+		}
+		if ((S_IXGRP & my_inode.mode) != 0){
+			*exec = TRUE;
+		}
+	}
+
+	/* Check for owner */
+	if (my_inode.uid != uid && my_inode.gid != gid){
+		if ((S_IROTH & my_inode.mode) != 0){
+			*read = TRUE;
+		}
+		if ((S_IWOTH & my_inode.mode) != 0){
+			*write = TRUE;
+		}
+		if ((S_IXOTH & my_inode.mode) != 0){
+			*exec = TRUE;
+		}
+	}
+	
+	return SUCCESS;
+}
+
+//unlink - consults open file table about removal of a file, should immediately remove from dir
 int unlink_i(int inum){
 	return SUCCESS;
 }
@@ -62,7 +274,464 @@ int unlink_i(int inum){
 //open - checks permissions | add to open file table
 //close/release - if an entry is pending for deletetion in the open file table, delete it. otherwise decrease reference count?
 
-//readdir - calls read????
+/* Searches the directory at inum to find an entry matching search_num
+ *
+ * If the entry is found, target is set to its index in the directory (which can change)
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - no disk
+ *   BUF_NULL           - given input pointer was null
+ *   NOT_DIR            - error occured while parsing the directory
+ *   NOT_IN_DIR         - something with the name wasn't found
+ *   SUCCESS            - was found, target was set
+ */
+int search_by_inum(int inum, int search_num, int* index){
+	if (index == NULL){
+		ERR(fprintf(stderr, "ERR: search_by_inum: index is null\n"));
+		ERR(fprintf(stderr, "  index:   %p\n", index));
+		return BUF_NULL;
+	}
+	
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: search_by_inum: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	if (! S_ISDIR(my_inode.mode)){
+		ERR(fprintf(stderr, "ERR: search_by_inum: not a directory\n"));
+		ERR(fprintf(stderr, "  my_inode.mode:           %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  S_ISDIR(my_inode.mode):  %d\n", S_ISDIR(my_inode.mode)));
+		return NOT_DIR;
+	}
+	
+	int cur_block = 0;
+	int reached_end = FALSE;
+	int num_entries, i;
+	dirblock d;
+	for (cur_block = 0; reached_end == FALSE; cur_block++){
+		if (read_dir_page(inum, &d, cur_block, &num_entries, &reached_end) == SUCCESS){
+			for (i = 0; i < num_entries; i++){
+				if (d.dir_ents[i].inode_num == search_num){
+					*index = cur_block * DIRENTS_PER_BLOCK + i;
+					return SUCCESS;
+				}
+			}
+		}
+		else{
+			ERR(fprintf(stderr, "ERR: search_by_inum: read_dir failed\n"));
+			return NOT_DIR;
+		}
+	}
+	
+	return NOT_IN_DIR;
+}
+
+/* Searches the directory at inum to find an entry matching name
+ *
+ * If the entry is found, target is set to its inode number
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - no disk
+ *   BUF_NULL           - given input pointer was null
+ *   NOT_DIR            - error occured while parsing the directory
+ *   NOT_IN_DIR         - something with the name wasn't found
+ *   SUCCESS            - was found, target was set
+ */
+int search_by_name(int inum, const char *name, int* target){
+	if (name == NULL || target == NULL){
+		ERR(fprintf(stderr, "ERR: search_by_name: something is null\n"));
+		ERR(fprintf(stderr, "  name:   %p\n", name));
+		ERR(fprintf(stderr, "  target: %p\n", target));
+		return BUF_NULL;
+	}
+	
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: search_by_name: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	if (! S_ISDIR(my_inode.mode)){
+		ERR(fprintf(stderr, "ERR: search_by_name: not a directory\n"));
+		ERR(fprintf(stderr, "  my_inode.mode:           %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  S_ISDIR(my_inode.mode):  %d\n", S_ISDIR(my_inode.mode)));
+		return NOT_DIR;
+	}
+	
+	int cur_block = 0;
+	int reached_end = FALSE;
+	int num_entries, i;
+	dirblock d;
+	for (cur_block = 0; reached_end == FALSE; cur_block++){
+		if (read_dir_page(inum, &d, cur_block, &num_entries, &reached_end) == SUCCESS){
+			for (i = 0; i < num_entries; i++){
+				if (strncmp(name, d.dir_ents[i].name, FILEBUF_SIZE) == 0){
+					*target = d.dir_ents[i].inode_num;
+					return SUCCESS;
+				}
+			}
+		}
+		else{
+			ERR(fprintf(stderr, "ERR: search_by_name: read_dir failed\n"));
+			return NOT_DIR;
+		}
+	}
+	
+	return NOT_IN_DIR;
+}
+
+/* Removes the index-th item from a directory
+ *
+ * Does this by moving the last item to its location and shrinking the directory
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - no disk
+ *   BAD_INDEX          - index isn't a valid entry in this directory
+ *   NOT_DIR            - S_IFDIR bit is not set
+ *   SUCCESS            - upon success, returns the number of bytes written (sizeof(dir_ent))
+ */
+int remove_dirent(int inum, int index){
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: remove_dirent: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	if (! S_ISDIR(my_inode.mode)){
+		ERR(fprintf(stderr, "ERR: remove_dirent: not a directory\n"));
+		ERR(fprintf(stderr, "  my_inode.mode:           %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  S_ISDIR(my_inode.mode):  %d\n", S_ISDIR(my_inode.mode)));
+		return NOT_DIR;
+	}
+	if (my_inode.size == 0 || index < 0){
+		ERR(fprintf(stderr, "ERR: remove_dirent: invalid index\n"));
+		ERR(fprintf(stderr, "  my_inode.size: %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  index:         %d\n", index));
+		return BAD_INDEX;
+	}
+	
+	/* Location of entry to be removed */
+	int block_num = index / DIRENTS_PER_BLOCK;
+	int block_offset = index % DIRENTS_PER_BLOCK;
+	
+	/* Location of the last entry */
+	int num_blocks = my_inode.size / BLOCK_SIZE;
+	int remainder = my_inode.size % BLOCK_SIZE;
+	if (remainder % sizeof(dir_ent) != 0){
+		ERR(fprintf(stderr, "ERR: read_dir: size not a multiple of dir_ent\n"));
+		ERR(fprintf(stderr, "  sizeof(dir_ent): %d\n", sizeof(dir_ent)));
+		ERR(fprintf(stderr, "  remainder:       %d\n", remainder));
+		return MALFORMED_DIRECTORY;
+	}
+	int remainder_index = remainder / sizeof(dir_ent);
+	
+	/* Check that index specified is in the file */
+	if ((block_num * BLOCK_SIZE) + (block_offset * sizeof(dir_ent)) > (num_blocks * BLOCK_SIZE) + (remainder - sizeof(dir_ent))){
+		ERR(fprintf(stderr, "ERR: remove_dirent: invalid index\n"));
+		ERR(fprintf(stderr, "  my_inode.size: %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  index:         %d\n", index));
+		return BAD_INDEX;
+	}
+	
+	/* Read the last item and write it at index */
+	dir_ent last;
+	read_i(inum, &last, (num_blocks * BLOCK_SIZE) + (remainder - sizeof(dir_ent)), sizeof(dir_ent));
+	ret = write_i(inum, &last, (block_num * BLOCK_SIZE) + (block_offset * sizeof(dir_ent)), sizeof(dir_ent));
+	if (ret != sizeof(dir_ent)){
+		ERR(fprintf(stderr, "ERR: remove_dirent: write_i failed\n"));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	
+	/* Update the size of the directory */
+	int new_size = my_inode.size - sizeof(dir_ent);
+	if (new_size % BLOCK_SIZE == 0 && new_size != 0){
+		new_size = new_size - DIRENTS_REMAINDER;
+	}
+	truncate(inum, new_size);
+	
+	return SUCCESS;
+}
+
+/* Adds an entry to a directory
+ *
+ * Returns:
+ *   DISC_UNINITIALIZED - no disk
+ *   BUF_NULL           - d is null
+ *   NOT_DIR            - S_IFDIR bit is not set
+ *   DATA_FULL          - if a block cannot be written because the FS filled up
+ *   INT                - upon success, returns the number of bytes written (sizeof(dir_ent))
+ */
+int add_dirent(int inum, dir_ent* d){
+	if (d == NULL){
+		ERR(fprintf(stderr, "ERR: add_dirent: d is null\n"));
+		ERR(fprintf(stderr, "  d: %p\n", d));
+		return BUF_NULL;
+	}
+	
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: add_dirent: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	if (! S_ISDIR(my_inode.mode)){
+		ERR(fprintf(stderr, "ERR: add_dirent: not a directory\n"));
+		ERR(fprintf(stderr, "  my_inode.mode:           %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  S_ISDIR(my_inode.mode):  %d\n", S_ISDIR(my_inode.mode)));
+		return NOT_DIR;
+	}
+	
+	off_t write_offset = my_inode.size;
+	if ((my_inode.size + sizeof(dir_ent)) / BLOCK_SIZE > my_inode.size / BLOCK_SIZE){
+		write_offset += DIRENTS_REMAINDER;
+	}
+
+	int remainder = my_inode.size % BLOCK_SIZE;
+	if (remainder % sizeof(dir_ent) != 0){
+		ERR(fprintf(stderr, "ERR: read_dir: size not a multiple of dir_ent\n"));
+		ERR(fprintf(stderr, "  sizeof(dir_ent): %d\n", sizeof(dir_ent)));
+		ERR(fprintf(stderr, "  remainder:       %d\n", remainder));
+		return MALFORMED_DIRECTORY;
+	}
+	
+	return write_i(inum, d, write_offset, sizeof(dir_ent));
+}
+
+/* Deletes an inode and the data associated with it
+ *
+ * Returns (normally only SUCCESS):
+ *   DISC_UNINITIALIZED  - no disk
+ *   BAD_INODE           - inode supplied was bad
+ *   SUCCESS             - file size changed
+ */
+int del(int inum){
+	/* Delete the data */
+	int ret = truncate(inum, 0);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: delete: truncate failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	
+	/* Delete the inode */
+	return inode_free(inum);
+}
+
+/* Changes a file's size to exactly offset bytes
+ *
+ * Appends 0s to a file if offset > current file size
+ *
+ * Returns (normally only SUCCESS):
+ *   DISC_UNINITIALIZED  - no disk
+ *   BAD_INODE           - inode supplied was bad
+ *   SUCCESS             - file size changed
+ */
+int truncate(int inum, off_t offset){
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: read_dir: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	
+	/* Does the file need to be extended */
+	if (offset > my_inode.size){
+		my_inode.size = offset;
+		inode_write(inum, &my_inode);
+		return SUCCESS;
+	}
+
+	/* Shorten the file */
+	int buf_size = my_inode.size - offset;
+
+	uint8_t* buf = malloc(buf_size);
+	
+	memset(buf, 0, buf_size);
+	
+	write_i(inum, buf, offset, buf_size);
+
+	free(buf);
+	my_inode.size = offset;
+	inode_write(inum, &my_inode);
+	
+	return SUCCESS;
+}
+
+/* Reads a block of directory entries from a directory into d
+ *
+ * Returns (normally only SUCCESS):
+ *   DISC_UNINITIALIZED  - no disk
+ *   BUF_NULL            - one of the given parameters is null
+ *   INVALID_PAGE        - page is negative or beyond the end of the file
+ *   NOT_DIR             - S_IFDIR bit is not set
+ *   MALFORMED_DIRECTORY - the directory is of odd size
+ *   SUCCESS             - directory was read successfully
+ */
+int read_dir_page(int inum, dirblock* d, int page, int* entries, int* last){
+	if (d == NULL || entries == NULL || last == NULL){
+		ERR(fprintf(stderr, "ERR: read_dir_page: something is null\n"));
+		ERR(fprintf(stderr, "  d:       %p\n", d));
+		ERR(fprintf(stderr, "  entries: %p\n", entries));
+		ERR(fprintf(stderr, "  last:    %p\n", last));
+		return BUF_NULL;
+	}
+
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: read_dir_page: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	
+	if (! S_ISDIR(my_inode.mode)){
+		ERR(fprintf(stderr, "ERR: read_dir_page: not a directory\n"));
+		ERR(fprintf(stderr, "  my_inode.mode:           %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  S_ISDIR(my_inode.mode):  %d\n", S_ISDIR(my_inode.mode)));
+		return NOT_DIR;
+	}
+	if (my_inode.size == 0){
+		ERR(fprintf(stderr, "ERR: read_dir_page: size is 0\n"));
+		return MALFORMED_DIRECTORY;
+	}
+	
+	int num_blocks = my_inode.size / BLOCK_SIZE;
+	int remainder = my_inode.size % BLOCK_SIZE;
+	if (remainder % sizeof(dir_ent) != 0){
+		ERR(fprintf(stderr, "ERR: read_dir_page: size not a multiple of dir_ent\n"));
+		ERR(fprintf(stderr, "  sizeof(dir_ent): %d\n", sizeof(dir_ent)));
+		ERR(fprintf(stderr, "  remainder:       %d\n", remainder));
+		return MALFORMED_DIRECTORY;
+	}
+	if (page > num_blocks || page < 0){
+		ERR(fprintf(stderr, "ERR: read_dir_page: page invalid\n"));
+		ERR(fprintf(stderr, "  num_blocks: %d\n", num_blocks));
+		ERR(fprintf(stderr, "  page:       %d\n", page));
+		return INVALID_PAGE;
+	}
+	
+	
+	/* Figure out if this is the last block or not */
+	if (page == num_blocks){
+		*entries = remainder / sizeof(dir_ent);
+		*last = TRUE;
+	}
+	else{
+		*entries = DIRENTS_PER_BLOCK;
+		*last = FALSE;
+	}
+	
+	/* Read a block into the dirblock object */
+	ret = read_i(inum, d, page * BLOCK_SIZE, *entries * sizeof(dir_ent));
+	if (ret != *entries * sizeof(dir_ent)){
+		ERR(fprintf(stderr, "ERR: read_dir_page: read_i failed\n"));
+		ERR(fprintf(stderr, "  inum:   %d\n", inum));
+		ERR(fprintf(stderr, "  buf:    %d\n", d));
+		ERR(fprintf(stderr, "  offset: %d\n", page * BLOCK_SIZE));
+		ERR(fprintf(stderr, "  ret:    %d\n", ret));
+		return ret;
+	}
+	
+	return SUCCESS;
+}
+
+/* Reads all directory entries from a directory into buf
+ *
+ * Returns (normally only SUCCESS):
+ *   DISC_UNINITIALIZED  - no disk
+ *   BUF_NULL            - read buffer is null
+ *   NOT_DIR             - S_IFDIR bit is not set
+ *   MALFORMED_DIRECTORY - the directory is of odd size
+ *   SUCCESS             - directory was read successfully
+ */
+int read_dir_whole(int inum, dir_ent* buf){
+	if (buf == NULL){
+		ERR(fprintf(stderr, "ERR: read_dir_whole: buf is null\n"));
+		ERR(fprintf(stderr, "  buf: %p\n", buf));
+		return BUF_NULL;
+	}
+	
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: read_dir_whole: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return ret;
+	}
+	
+	if (! S_ISDIR(my_inode.mode)){
+		ERR(fprintf(stderr, "ERR: read_dir_whole: not a directory\n"));
+		ERR(fprintf(stderr, "  my_inode.mode:           %d\n", my_inode.mode));
+		ERR(fprintf(stderr, "  S_ISDIR(my_inode.mode):  %d\n", S_ISDIR(my_inode.mode)));
+		return NOT_DIR;
+	}
+	if (my_inode.size == 0){
+		ERR(fprintf(stderr, "ERR: read_dir_whole: size is 0\n"));
+		return MALFORMED_DIRECTORY;
+	}
+	
+	int num_blocks = my_inode.size / BLOCK_SIZE;
+	int remainder = my_inode.size % BLOCK_SIZE;
+	if (remainder % sizeof(dir_ent) != 0){
+		ERR(fprintf(stderr, "ERR: read_dir_whole: size not a multiple of dir_ent\n"));
+		ERR(fprintf(stderr, "  sizeof(dir_ent): %d\n", sizeof(dir_ent)));
+		ERR(fprintf(stderr, "  remainder:       %d\n", remainder));
+		return MALFORMED_DIRECTORY;
+	}
+
+	/* Read full blocks of directory entries */
+	int i;
+	uintptr_t write_offset = 0;
+	for (i = 0; i < num_blocks; i++){
+		ret = read_i(inum, (void*)((uintptr_t)buf + write_offset), i * BLOCK_SIZE, DIRENTS_PER_BLOCK * sizeof(dir_ent));
+		if (ret != DIRENTS_PER_BLOCK * sizeof(dir_ent)){
+			ERR(fprintf(stderr, "ERR: read_dir_whole: read_i failed\n"));
+			ERR(fprintf(stderr, "  inum:   %d\n", inum));
+			ERR(fprintf(stderr, "  buf:    %d\n", (void*)((uintptr_t)buf + write_offset)));
+			ERR(fprintf(stderr, "  offset: %d\n", i * BLOCK_SIZE));
+			ERR(fprintf(stderr, "  size:   %d\n", DIRENTS_PER_BLOCK * sizeof(dir_ent)));
+			ERR(fprintf(stderr, "  ret:    %d\n", ret));
+			return ret;
+		}
+		write_offset += DIRENTS_PER_BLOCK * sizeof(dir_ent);
+	}
+	
+	/* Read partial directory entries */
+	ret = read_i(inum, (void*)((uintptr_t)buf + write_offset), i * BLOCK_SIZE, remainder);
+	if (ret != remainder){
+		ERR(fprintf(stderr, "ERR: read_dir_whole: read_i failed\n"));
+		ERR(fprintf(stderr, "  inum:   %d\n", inum));
+		ERR(fprintf(stderr, "  buf:    %d\n", (void*)((uintptr_t)buf + write_offset)));
+		ERR(fprintf(stderr, "  offset: %d\n", i * BLOCK_SIZE));
+		ERR(fprintf(stderr, "  size:   %d\n", remainder));
+		ERR(fprintf(stderr, "  ret:    %d\n", ret));
+		return ret;
+	}
+	
+	return SUCCESS;
+}
 
 /* Reads size data from inum at offset offset into buf
  *
@@ -72,7 +741,7 @@ int unlink_i(int inum){
  *   INVALID_BLOCK      - a data block found was invalid
  *   INT                - upon success, returns number of bytes read
  */
-int read_i(int inum, void* buf, int offset, size_t size){
+int read_i(int inum, void* buf, off_t offset, size_t size){
 	if (buf == NULL){
 		ERR(fprintf(stderr, "ERR: read_i: buf is null\n"));
 		ERR(fprintf(stderr, "  buf: %p\n", buf));
@@ -107,6 +776,8 @@ int read_i(int inum, void* buf, int offset, size_t size){
 	int end_size = ((offset + truncated_size - 1) % BLOCK_SIZE) + 1; //1-4096
 	
 	DEBUG(DB_READI, printf("DEBUG: read_i: calculated offsets\n"));
+	DEBUG(DB_READI, printf("  offset:              %d\n", offset));
+	DEBUG(DB_READI, printf("  size:                %d\n", size));
 	DEBUG(DB_READI, printf("  start_block:         %d\n", start_block));
 	DEBUG(DB_READI, printf("  start_offset:        %d\n", start_offset));
 	DEBUG(DB_READI, printf("  end_block:           %d\n", end_block));
@@ -169,7 +840,7 @@ int read_i(int inum, void* buf, int offset, size_t size){
 	return truncated_size;
 }
 
-/* Reads size bytes at offset offset from buf into the file specified by inum
+/* Writes size bytes at offset offset from buf into the file specified by inum
  *
  * Updates inode's size field
  *
@@ -178,9 +849,9 @@ int read_i(int inum, void* buf, int offset, size_t size){
  *   BUF_NULL           - buf is null
  *   INVALID_BLOCK      - a data block found was invalid
  *   DATA_FULL          - if a block cannot be written because the FS filled up
- *   INT                - upon success, returns the number of bytes read
+ *   INT                - upon success, returns the number of bytes written
  */
-int write_i(int inum, void* buf, int offset, size_t size){ //TODO: update SUID SGID bits?
+int write_i(int inum, void* buf, off_t offset, size_t size){
 	if (buf == NULL){
 		ERR(fprintf(stderr, "ERR: write_i: buf is null\n"));
 		ERR(fprintf(stderr, "  buf: %p\n", buf));
@@ -206,6 +877,8 @@ int write_i(int inum, void* buf, int offset, size_t size){ //TODO: update SUID S
 	int end_size = ((offset + size - 1) % BLOCK_SIZE) + 1; //1-4096
 	
 	DEBUG(DB_WRITEI, printf("DEBUG: write_i: calculated offsets\n"));
+	DEBUG(DB_WRITEI, printf("  offset:              %d\n", offset));
+	DEBUG(DB_WRITEI, printf("  size:                %d\n", size));
 	DEBUG(DB_WRITEI, printf("  original_size:       %d\n", original_size));
 	DEBUG(DB_WRITEI, printf("  start_block:         %d\n", start_block));
 	DEBUG(DB_WRITEI, printf("  start_offset:        %d\n", start_offset));
@@ -263,7 +936,7 @@ int write_i(int inum, void* buf, int offset, size_t size){ //TODO: update SUID S
 		}
 	}
 
-	my_inode.size = MAX(original_size, writeOffset);
+	my_inode.size = MAX(original_size, offset + writeOffset);
 	inode_write(inum, &my_inode);
 	
 	/* If it's just one block, we quit here */
@@ -364,13 +1037,7 @@ int write_i(int inum, void* buf, int offset, size_t size){ //TODO: update SUID S
  *   INVALID_BLOCK      - an invalid block number was found during the search
  *   SUCCESS            - nth block of file is no longer allocated
  */
-int rm_nth_datablock(inode* inod, int n){
-	if (n < 0){
-		ERR(fprintf(stderr, "ERR: rm_nth_datablock: block num was negative\n"));
-		ERR(fprintf(stderr, "  n: %d\n", n));
-		return INVALID_BLOCK;
-	}
-	
+int rm_nth_datablock(inode* inod, off_t n){
 	if (inod == NULL){
 		ERR(fprintf(stderr, "ERR: rm_nth_datablock: inode is null\n"));
 		ERR(fprintf(stderr, "  inod: %p\n", inod));
@@ -529,13 +1196,7 @@ int rm_nth_datablock(inode* inod, int n){
  *   INVALID_BLOCK      - an invalid block number was found during the search
  *   INT                - upon success, returns number for data block
  */
-int get_nth_datablock(inode* inod, int n, int create, int* created){
-	if (n < 0){
-		ERR(fprintf(stderr, "ERR: get_nth_datablock: block num was negative\n"));
-		ERR(fprintf(stderr, "  n: %d\n", n));
-		return INVALID_BLOCK;
-	}
-	
+int get_nth_datablock(inode* inod, off_t n, int create, int* created){
 	if (inod == NULL){
 		ERR(fprintf(stderr, "ERR: get_nth_datablock: inode is null\n"));
 		ERR(fprintf(stderr, "  inod: %p\n", inod));
@@ -681,8 +1342,6 @@ int intPow(int x, int y){
 	return sum;
 }
 
-//TODO: rmdir?
-
 //Work plan:
 // 1. read_inode, write_inode
 // 2. readdir
@@ -691,8 +1350,6 @@ int intPow(int x, int y){
 // 5. mknod mkdir
 // 6. open file table
 // 7. open, close, unlink
-
-
 
 //Open file table consists of two parts:
 // 1. for each open inode, has number of references, parent inode, pending deletion flag

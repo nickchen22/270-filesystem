@@ -80,7 +80,8 @@ int mkfs(int blocks, int root_uid, int root_gid){
 	
 	/* Create the root inode */
 	int root_inode = 0;
-	create_dir_base(&root_inode, S_IFDIR | S_IRWXU | S_IRGRP | S_IROTH, root_uid, root_gid, INVALID_INODE);
+	mode_t mode = S_IRWXU | S_IRWXG | S_IRWXO;
+	create_dir_base(&root_inode, mode, root_uid, root_gid, INVALID_INODE);
 	
 	superblock sb;
 	read_superblock(&sb);
@@ -143,7 +144,7 @@ int create_dir_base(int* inode_num, mode_t mode, int uid, int gid, int parent_in
 	
 	/* Initialize the inode */
 	memset(&new_dir, 0, sizeof(inode));
-	new_dir.mode = mode;
+	new_dir.mode = S_IFDIR | mode;
 	new_dir.uid = uid;
 	new_dir.gid = gid;
 	new_dir.size = 2 * sizeof(dir_ent); /* Should never be more than one block, or we have a problem */
