@@ -178,6 +178,33 @@ int oft_lookup(int fd, int* inode, int* flags){
 	return FALSE;
 }
 
+/* Returns the stat structure associated with an inode
+ *
+ * On inode read failure, returns an empty stat structure
+ */
+struct stat get_stat(int inum){
+	struct stat s;
+	memset(&s, 0, sizeof(stat));
+	
+	int ret;
+	inode my_inode;
+	ret = inode_read(inum, &my_inode);
+	if (ret != SUCCESS){
+		ERR(fprintf(stderr, "ERR: get_stat: inode_read failed\n"));
+		ERR(fprintf(stderr, "  inum: %d\n", inum));
+		ERR(fprintf(stderr, "  ret:  %d\n", ret));
+		return s;
+	}
+	
+	s.st_ino = inum;
+	s.st_mode = my_inode.mode;
+	s.st_uid = my_inode.uid;
+	s.st_gid = my_inode.gid;
+	s.st_size = my_inode.size;
+	
+	return s;
+}
+
 /* mkdir() attempts to create a directory named pathname
  *
  * Assumes that the initial directory elements will fit in a block
@@ -387,7 +414,7 @@ int check_permissions(int inum, int uid, int gid, int* read, int* write, int* ex
 	inode my_inode;
 	ret = inode_read(inum, &my_inode);
 	if (ret != SUCCESS){
-		ERR(fprintf(stderr, "ERR: has_rx_permissions: inode_read failed\n"));
+		ERR(fprintf(stderr, "ERR: check_permissions: inode_read failed\n"));
 		ERR(fprintf(stderr, "  inum: %d\n", inum));
 		ERR(fprintf(stderr, "  ret:  %d\n", ret));
 		return ret;

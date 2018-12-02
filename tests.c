@@ -17,12 +17,13 @@ int get_nth_1();
 int get_nth_2();
 int write_read_file();
 int write_read_file_offset();
+int write_read_file_offset_2();
 int overwrite_with_zeros();
 int write_on_small_fs_1();
 void print_inode(inode* inode);
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {mkfs_size, lots_inodes, lots_inodes_free_some, free_nonexistent_inode, get_nth_1, get_nth_2, write_read_file, write_read_file_offset, overwrite_with_zeros, write_on_small_fs_1};
+	int (*tests[])() = {mkfs_size, lots_inodes, lots_inodes_free_some, free_nonexistent_inode, get_nth_1, get_nth_2, write_read_file, write_read_file_offset, write_read_file_offset_2, overwrite_with_zeros, write_on_small_fs_1};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
 	srand(time(NULL));
@@ -72,6 +73,9 @@ int main(int argc, const char **argv){
 	inode dummy_inode;
 	memset(&dummy_inode, 0, sizeof(dummy_inode));
 
+	struct stat s = get_stat(1);
+	printf("size = %d\n", s.st_size);
+	
 	for (i = 34; i < 50; i++){
 		d.inode_num = i;
 		add_dirent(1, &d);
@@ -123,7 +127,9 @@ int main(int argc, const char **argv){
 		printf("  flags          %d\n", oft_fds[i].flags);
 	}
 	
-	
+	s = get_stat(1);
+	printf("size = %d\n", s.st_size);
+	printf("%x", O_RDONLY);
 	
 	/* Any other temporary test code can go here */
 	return 0;
@@ -657,6 +663,43 @@ int write_read_file_offset(){
 	read_i(number, actual_result, offset, size - offset);
 	
 	if (memcmp((void*)((uintptr_t)expected_result + (uintptr_t)offset), actual_result, size - offset) == 0){
+		free(disk);
+		return TEST_PASSED;
+	}
+	
+	free(disk);
+	return TEST_FAILED;
+}
+
+int write_read_file_offset_2(){
+	printf("%30s", "WRITE_READ_FILE_RAND_OFFSET_2");
+	fflush(stdout);
+	
+	mkfs(20000, 0, 0);
+	
+	int size = BLOCK_SIZE * (rand() % 1000);
+	size += rand() % BLOCK_SIZE;
+	
+	int offset = rand() % size;
+	
+	uint8_t expected_result[size];
+	uint8_t actual_result[size];
+	
+	int i;
+	for (i = 0; i < size; i++){
+		expected_result[i] = rand() % 256;
+	}
+	
+	inode dummy_inode;
+	memset(&dummy_inode, 0, sizeof(inode));
+	
+	int number;
+	inode_create(&dummy_inode, &number);
+	
+	write_i(number, expected_result, offset, size - offset);
+	read_i(number, actual_result, 0, size);
+	
+	if (memcmp(expected_result, (void*)((uintptr_t)actual_result + (uintptr_t)offset), size - offset) == 0){
 		free(disk);
 		return TEST_PASSED;
 	}

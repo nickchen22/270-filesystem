@@ -74,9 +74,7 @@ int simple_write_read(){
 	lseek(fd, 0, SEEK_SET);
 	read(fd, read_buf, 12);
 	
-	printf("file %s\n", read_buf);
-	
-	//unlink("test1");
+	unlink("test1");
 	
 	if (strncmp(read_buf, test_buf, 12) == 0){
 		return TEST_PASSED;

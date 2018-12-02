@@ -10,6 +10,7 @@
 #include <math.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <fcntl.h>
 #include <errno.h>
 
 #define BLOCK_SIZE 4096

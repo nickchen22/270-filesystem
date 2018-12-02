@@ -62,6 +62,8 @@ int oft_lookup(int fd, int* inode, int* flags);
 int mkdir_fs(const char *pathname, mode_t mode, int uid, int gid);
 int mknod_fs(const char *pathname, mode_t mode, int uid, int gid);
 
+struct stat get_stat(int inum);
+
 int check_permissions(int inum, int uid, int gid, int* read, int* write, int* exec);
 int namei(const char *pathname, int uid, int gid, int* parent_inum, int* target_inum, int* index);
 
