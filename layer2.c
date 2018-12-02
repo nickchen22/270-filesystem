@@ -7,8 +7,6 @@
 //TODO: assuming file paths do not contain ., .., or a / at the end
 //TODO: rmdir? <- might be good to make a layer 2 command that does most of this?
 //TODO: make sure writeback caching disabled
-//TODO: fix truncate on full fs
-//TODO: write resets SUID SGID bits?
 
 /* Table 1 of OFT */
 oft_inode* oft_inodes = NULL;
@@ -178,20 +176,6 @@ int oft_lookup(int fd, int* inode, int* flags){
 	}
 
 	return FALSE;
-}
-
-/* Attempts to remove target_inum from the directory dir_inum
- *
- * Returns:
- *   -EACCES       - a component of the path didn't have rx permissions
- *   -ENOENT       - a component of the path didn't exist
- *   -ENOTDIR      - a component of the path wasn't a directory
- *   -ENAMETOOLONG - a component of the path had a name longer than 256 bytes
- *   -ENOSPC       - no room in FS for the new file or directory entry
- *   SUCCESS       - directory was created
- */
-int sever(int dir_inum, int target_inum){
-	return 1;
 }
 
 /* mkdir() attempts to create a directory named pathname
@@ -448,14 +432,6 @@ int check_permissions(int inum, int uid, int gid, int* read, int* write, int* ex
 	
 	return SUCCESS;
 }
-
-//unlink - consults open file table about removal of a file, should immediately remove from dir
-int unlink_i(int inum){
-	return SUCCESS;
-}
-
-//open - checks permissions | add to open file table
-//close/release - if an entry is pending for deletetion in the open file table, delete it. otherwise decrease reference count?
 
 /* Searches the directory at inum to find an entry matching search_num
  *
@@ -940,7 +916,7 @@ int read_i(int inum, void* buf, off_t offset, size_t size){
 		return ret;
 	}
 
-	/* If the write position is beyond the end of the file */
+	/* If the read position is beyond the end of the file */
 	if (offset >= my_inode.size){
 		return 0;
 	}
@@ -968,64 +944,42 @@ int read_i(int inum, void* buf, off_t offset, size_t size){
 
 	int block_addr;
 	uint8_t block_buf[BLOCK_SIZE];
-	uintptr_t writeOffset = 0;
 	
-	/* Read the first partial block. Special case if it's also the last block */
-	block_addr = get_nth_datablock(&my_inode, start_block, FALSE, NULL);
-	DEBUG(DB_READI, printf("  block_addr (%06d): %d\n", start_block, block_addr));
+	int read_start = start_offset;
+	uintptr_t read_size = BLOCK_SIZE;
+	uintptr_t bytes_read = 0;
 	
-	ret = data_read(block_addr, &block_buf);
-	if (ret != SUCCESS){
-		ERR(fprintf(stderr, "ERR: read_i: data_read failed\n"));
-		ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
-		return ret;
-	}
-	
-	if (start_block == end_block){
-		memcpy(buf, &block_buf[start_offset], end_size - start_offset);
-		return end_size - start_offset;
-	}
-	else{
-		memcpy(buf, &block_buf[start_offset], BLOCK_SIZE - start_offset);
-		writeOffset += (BLOCK_SIZE - start_offset);
-	}
-	
-	/* Read intermediate full blocks */
+	/* Read blocks */
 	int i;
-	for (i = start_block + 1; i < end_block; i++){
+	for (i = start_block; i <= end_block; i++){
+		if (i == end_block){
+			read_size = end_size;
+		}
+		
 		block_addr = get_nth_datablock(&my_inode, i, FALSE, NULL);
 		DEBUG(DB_READI, printf("  block_addr (%06d): %d\n", i, block_addr));
 		
-		ret = data_read(block_addr, &block_buf);
+		ret = data_read(block_addr, block_buf);
 		if (ret != SUCCESS){
 			ERR(fprintf(stderr, "ERR: read_i: data_read failed\n"));
 			ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
 			return ret;
 		}
 		
-		memcpy((void*)((uintptr_t)buf + writeOffset), block_buf, BLOCK_SIZE);
-		writeOffset += BLOCK_SIZE;
-	}
-	
-	/* Read the last, partial block */
-	block_addr = get_nth_datablock(&my_inode, end_block, FALSE, NULL);
-	DEBUG(DB_READI, printf("  block_addr (%06d): %d\n", end_block, block_addr));
-	
-	ret = data_read(block_addr, &block_buf);
-	if (ret != SUCCESS){
-		ERR(fprintf(stderr, "ERR: read_i: data_read failed\n"));
-		ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
-		return ret;
-	}
+		memcpy((void*)((uintptr_t)buf + bytes_read), (void*)((uintptr_t)block_buf + read_start), read_size - read_start);
 		
-	memcpy((void*)((uintptr_t)buf + writeOffset), block_buf, end_size);
+		bytes_read += read_size - read_start;
+		
+		read_start = 0;
+		read_size = BLOCK_SIZE;
+	}
 	
-	return truncated_size;
+	return bytes_read;
 }
 
 /* Writes size bytes at offset offset from buf into the file specified by inum
  *
- * Updates inode's size field
+ * Updates inode's size field and clears its SUID and SGID bits
  *
  * Returns (normally only DATA_FULL or INT):
  *   DISC_UNINITIALIZED - no disk
@@ -1068,142 +1022,116 @@ int write_i(int inum, void* buf, off_t offset, size_t size){
 	DEBUG(DB_WRITEI, printf("  end_block:           %d\n", end_block));
 	DEBUG(DB_WRITEI, printf("  end_size:            %d\n", end_size));
 
-	int block_addr;
 	uint8_t zero_block[BLOCK_SIZE];
 	memset(zero_block, 0, BLOCK_SIZE);
 	
 	uint8_t block_buf[BLOCK_SIZE];
-	uintptr_t writeOffset = 0;
 	
-	/* Write the first partial block. Special case if it's also the last block */
-	int created = FALSE;
-	block_addr = get_nth_datablock(&my_inode, start_block, TRUE, &created);
-	if (block_addr == DATA_FULL){
-		ERR(fprintf(stderr, "ERR: write_i: filesystem full\n"));
-		return DATA_FULL;
-	}
-	
-	if (created){
-		memset(block_buf, 0, BLOCK_SIZE);
-	}
-	else{
-		ret = data_read(block_addr, &block_buf);
-		if (ret != SUCCESS){
-			ERR(fprintf(stderr, "ERR: write_i: data_read failed\n"));
-			ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
-			return ret;
-		}
-	}
-
-	if (start_block == end_block){
-		memcpy(&block_buf[start_offset], buf, end_size - start_offset);
-		writeOffset += (end_size - start_offset);
-	} else {
-		memcpy(&block_buf[start_offset], buf, BLOCK_SIZE - start_offset);
-		writeOffset += (BLOCK_SIZE - start_offset);
-	}
-
-	/* If the block is all 0s, delete it. Otherwise write it */
-	if (memcmp(block_buf, zero_block, BLOCK_SIZE) == 0){
-		rm_nth_datablock(&my_inode, start_block);
-		DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", start_block, 0));
-	}
-	else{
-		DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", start_block, block_addr));
-		ret = data_write(block_addr, block_buf);
-		if (ret != SUCCESS){
-			ERR(fprintf(stderr, "ERR: write_i: data_write failed\n"));
-			ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
-			ERR(fprintf(stderr, "  block_buf:  %p\n", block_buf));
-			return ret;
-		}
-	}
-
-	my_inode.size = MAX(original_size, offset + writeOffset);
-	inode_write(inum, &my_inode);
-	
-	/* If it's just one block, we quit here */
-	if (start_block == end_block){
-		return writeOffset;
-	}
+	int write_start = start_offset;
+	uintptr_t write_size = BLOCK_SIZE;
+	uintptr_t bytes_written = 0;
+	int created, all_zeros, block_addr;
 
 	/* Write intermediate full blocks */
 	int i;
-	for (i = start_block + 1; i < end_block; i++){
-		/* If we're writing all 0s, just delete the block */
-		if (memcmp((void*)((uintptr_t)buf + writeOffset), zero_block, BLOCK_SIZE) == 0){
-			rm_nth_datablock(&my_inode, i);
-			DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", i, 0));
+	for (i = start_block; i <= end_block; i++){
+		//if we're writing a block of 0s, just delete the block and move on
+		//get the data block
+		  //if this fails BUT we're writing all 0s -> delete it and continue
+		  //if this fails and we're not writing all 0s -> retun FS full
+		//add our data to it (0s if created, read it if not created)
+		//write it back, if all 0s -> delete it
+		if (i == end_block){
+			write_size = end_size;
+		}
+		
+		/* Check to see if we're writing all 0s */
+		if (memcmp((void*)((uintptr_t)buf + write_start), zero_block, write_size - write_start) == 0){
+			all_zeros = TRUE;
 		}
 		else{
+			all_zeros = FALSE;
+		}
+		
+		/* If we're writing a block of 0s, just delete it instead */
+		if (all_zeros && write_size == BLOCK_SIZE && write_start == 0){
+			rm_nth_datablock(&my_inode, i);
+			block_addr = 0;
+		}
+		else{
+			/* If the filesystem is full and we aren't writing all zeros */
+			created = FALSE;
 			block_addr = get_nth_datablock(&my_inode, i, TRUE, &created);
-			if (block_addr == DATA_FULL){
+			if (block_addr == DATA_FULL && !all_zeros){
+				rm_nth_datablock(&my_inode, i);
 				ERR(fprintf(stderr, "ERR: write_i: filesystem full\n"));
 				return DATA_FULL;
 			}
-			DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", i, block_addr));
-			
-			ret = data_write(block_addr, (void*)((uintptr_t)buf + writeOffset));
-			if (ret != SUCCESS){
-				ERR(fprintf(stderr, "ERR: write_i: data_write failed\n"));
-				ERR(fprintf(stderr, "  block_addr:  %d\n", block_addr));
-				ERR(fprintf(stderr, "  buf:         %p\n", buf));
-				ERR(fprintf(stderr, "  writeOffset: %d\n", writeOffset));
-				return ret;
+			/* If the filesystem is full but we are writing all zeros */
+			else if (block_addr == DATA_FULL){
+				rm_nth_datablock(&my_inode, i);
+				block_addr = 0;
+			}
+			/* If the filesystem isn't full */
+			else{
+				/* If we're writing a whole block, just write it directly from buf */
+				if (write_size == BLOCK_SIZE && write_start == 0){
+					ret = data_write(block_addr, (void*)((uintptr_t)buf + bytes_written));
+					if (ret != SUCCESS){
+						ERR(fprintf(stderr, "ERR: write_i: data_write failed\n"));
+						ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
+						ERR(fprintf(stderr, "  block_buf:  %p\n", block_buf));
+						return ret;
+					}
+				}
+				/* If we aren't writing a whole block, read it first, add our data, then write it back */
+				else{
+					/* Fresh block -> starts out all 0s */
+					if (created){
+						memset(block_buf, 0, BLOCK_SIZE);
+					}
+					else{
+						ret = data_read(block_addr, &block_buf);
+						if (ret != SUCCESS){
+							ERR(fprintf(stderr, "ERR: write_i: data_read failed\n"));
+							ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
+							return ret;
+						}
+					}
+					
+					/* If the resultant block is all 0s, just delete it instead */
+					memcpy((void*)(block_buf + (uintptr_t)write_start), (void*)((uintptr_t)buf + bytes_written), write_size - write_start);
+					if (memcmp(block_buf, zero_block, BLOCK_SIZE) == 0){
+						rm_nth_datablock(&my_inode, i);
+						block_addr = 0;
+					}
+					else{
+						ret = data_write(block_addr, &block_buf);
+						if (ret != SUCCESS){
+							ERR(fprintf(stderr, "ERR: write_i: data_write failed\n"));
+							ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
+							ERR(fprintf(stderr, "  block_buf:  %p\n", block_buf));
+							return ret;
+						}
+					}
+				}
 			}
 		}
-
-		writeOffset += BLOCK_SIZE;
+		
+		DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", i, block_addr));
+		
+		bytes_written += write_size - write_start;
+		
+		write_start = 0;
+		write_size = BLOCK_SIZE;
 		
 		/* Update and write inode */
-		my_inode.size = MAX(original_size, offset + writeOffset);
+		my_inode.size = MAX(original_size, offset + bytes_written);
+		my_inode.mode &= (0xffff ^ (S_ISUID || S_ISGID));
 		inode_write(inum, &my_inode);
 	}
-	
-	/* Write the last, partial block */
-	created = FALSE;
-	block_addr = get_nth_datablock(&my_inode, end_block, TRUE, &created); //check for full
-	if (block_addr == DATA_FULL){
-		ERR(fprintf(stderr, "ERR: write_i: filesystem full\n"));
-		return DATA_FULL;
-	}
-	
-	/* Assemble the buffer of what we'll be writing to the data block */
-	if (created){
-		memset(block_buf, 0, BLOCK_SIZE);
-	}
-	else{
-		ret = data_read(block_addr, &block_buf);
-		if (ret != SUCCESS){
-			ERR(fprintf(stderr, "ERR: write_i: data_read failed\n"));
-			ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
-			return ret;
-		}
-	}
-	memcpy(block_buf, (void*)((uintptr_t)buf + writeOffset), end_size);
-	
-	/* If we're writing all 0s, just delete the block */
-	if (memcmp(block_buf, zero_block, BLOCK_SIZE) == 0){
-		rm_nth_datablock(&my_inode, end_block);
-		DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", end_block, 0));
-	}
-	else{
-		ret = data_write(block_addr, block_buf);
-		if (ret != SUCCESS){
-			ERR(fprintf(stderr, "ERR: write_i: data_write failed\n"));
-			ERR(fprintf(stderr, "  block_addr: %d\n", block_addr));
-			ERR(fprintf(stderr, "  block_buf:  %p\n", block_buf));
-			return ret;
-		}
-		
-		DEBUG(DB_WRITEI, printf("  block_addr (%06d): %d\n", end_block, block_addr));
-	}
-	
-	/* Update and write inode */
-	my_inode.size = MAX(original_size, offset + size);
-	inode_write(inum, &my_inode);
 
-	return size;
+	return bytes_written;
 }
 
 /* Frees the blocks associated with the nth block of a file. Does not return
