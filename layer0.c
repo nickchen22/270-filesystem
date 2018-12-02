@@ -17,30 +17,30 @@ int total_blocks = UNINITIALIZED_BLOCKS;
  *   INVALID_BLOCK      - invalid block specified
  *   SUCCESS            - wrote data to disk
  */
-int writeBlock(int blocknum, void* write_buf){
+int write_block(int blocknum, void* write_buf){
 	if (total_blocks == UNINITIALIZED_BLOCKS || disk == NULL){
-		ERR(fprintf(stderr, "ERR: writeBlock: disk uninitialized\n"));
+		ERR(fprintf(stderr, "ERR: write_block: disk uninitialized\n"));
 		ERR(fprintf(stderr, "  disk:         %p\n", disk));
 		ERR(fprintf(stderr, "  total_blocks: %d\n", total_blocks));
 		return DISC_UNINITIALIZED;
 	}
 	
 	if (blocknum >= total_blocks || blocknum < 0){
-		ERR(fprintf(stderr, "ERR: writeBlock: invalid block\n"));
+		ERR(fprintf(stderr, "ERR: write_block: invalid block\n"));
 		ERR(fprintf(stderr, "  blocknum:     %d\n", blocknum));
 		ERR(fprintf(stderr, "  total_blocks: %d\n", total_blocks));
 		return INVALID_BLOCK;
 	}
 	
 	if (write_buf == NULL){
-		ERR(fprintf(stderr, "ERR: writeBlock: write_buf is null\n"));
+		ERR(fprintf(stderr, "ERR: write_block: write_buf is null\n"));
 		ERR(fprintf(stderr, "  write_buf: %p\n", write_buf));
 		return BUF_NULL;
 	}
 	
 	uintptr_t write_start = (uintptr_t)disk + blocknum * BLOCK_SIZE;
 	
-	DEBUG(DB_WRITEBLOCK, printf("DEBUG: writeBlock: about to write\n"));
+	DEBUG(DB_WRITEBLOCK, printf("DEBUG: write_block: about to write\n"));
 	DEBUG(DB_WRITEBLOCK, printf("  disk:        %p\n", disk));
 	DEBUG(DB_WRITEBLOCK, printf("  blocknum:    %d\n", blocknum));
 	DEBUG(DB_WRITEBLOCK, printf("  blocksize:   %d\n", BLOCK_SIZE));
@@ -65,30 +65,30 @@ int writeBlock(int blocknum, void* write_buf){
  *   INVALID_BLOCK      - invalid block specified
  *   SUCCESS            - read data to buffer
  */
-int readBlock(int blocknum, void* read_buf){
+int read_block(int blocknum, void* read_buf){
 	if (total_blocks == UNINITIALIZED_BLOCKS || disk == NULL){
-		ERR(fprintf(stderr, "ERR: readBlock: disk uninitialized\n"));
+		ERR(fprintf(stderr, "ERR: read_block: disk uninitialized\n"));
 		ERR(fprintf(stderr, "  disk:         %p\n", disk));
 		ERR(fprintf(stderr, "  total_blocks: %d\n", total_blocks));
 		return DISC_UNINITIALIZED;
 	}
 	
 	if (blocknum >= total_blocks || blocknum < 0){
-		ERR(fprintf(stderr, "ERR: readBlock: invalid block\n"));
+		ERR(fprintf(stderr, "ERR: read_block: invalid block\n"));
 		ERR(fprintf(stderr, "  blocknum:     %d\n", blocknum));
 		ERR(fprintf(stderr, "  total_blocks: %d\n", total_blocks));
 		return INVALID_BLOCK;
 	}
 	
 	if (read_buf == NULL){
-		ERR(fprintf(stderr, "ERR: readBlock: read_buf is null\n"));
+		ERR(fprintf(stderr, "ERR: read_block: read_buf is null\n"));
 		ERR(fprintf(stderr, "  read_buf: %p\n", read_buf));
 		return BUF_NULL;
 	}
 	
 	uintptr_t read_start = (uintptr_t)disk + blocknum * BLOCK_SIZE;
 	
-	DEBUG(DB_READBLOCK, printf("DEBUG: readBlock: about to read\n"));
+	DEBUG(DB_READBLOCK, printf("DEBUG: read_block: about to read\n"));
 	DEBUG(DB_READBLOCK, printf("  disk:        %p\n", disk));
 	DEBUG(DB_READBLOCK, printf("  blocknum:    %d\n", blocknum));
 	DEBUG(DB_READBLOCK, printf("  blocksize:   %d\n", BLOCK_SIZE));

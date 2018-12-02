@@ -88,6 +88,10 @@ int main(int argc, const char **argv){
 	printf("result = %d\n", mkdir_fs("/dir/sdf", S_IRWXU | S_IRWXG | S_IRWXO, 0, 0));
 	printf("result = %d\n", mkdir_fs("/asdf/sdf", S_IRWXU | S_IRWXG | S_IRWXO, 0, 0));
 	
+	oft_add(4, 6);
+	oft_attempt_delete(4);
+	oft_remove(10);
+	
 	read_dir_page(2, (dirblock*)array, 0, &entries, &last);
 	
 	printf("entries: %d, last: %d\n", entries, last);
@@ -104,6 +108,22 @@ int main(int argc, const char **argv){
 	else{
 		printf("%d\n", ret);
 	}
+	
+	printf("oft_inodes_size = %d\n", oft_inodes_size);
+	for (i = 0; i < oft_inodes_size; i++){
+		printf("  inum             %d\n", oft_inodes[i].inum);
+		printf("  ref              %d\n", oft_inodes[i].ref);
+		printf("  pending_deletion %d\n", oft_inodes[i].pending_deletion);
+	}
+	
+	printf("ofd_fds_size = %d\n", oft_fds_size);
+	for (i = 0; i < oft_fds_size; i++){
+		printf("  fd             %d\n", oft_fds[i].fd);
+		printf("  inum           %d\n", oft_fds[i].inum);
+		printf("  flags          %d\n", oft_fds[i].flags);
+	}
+	
+	
 	
 	/* Any other temporary test code can go here */
 	return 0;

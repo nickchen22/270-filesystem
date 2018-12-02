@@ -5,11 +5,194 @@
 
 //TODO: not currently bothering with link count, dev, times
 //TODO: assuming file paths do not contain ., .., or a / at the end
-//TODO: change things to uints where appropriate? update names as well
-//TODO: rmdir?
+//TODO: rmdir? <- might be good to make a layer 2 command that does most of this?
 //TODO: make sure writeback caching disabled
 //TODO: fix truncate on full fs
 //TODO: write resets SUID SGID bits?
+
+/* Table 1 of OFT */
+oft_inode* oft_inodes = NULL;
+int oft_inodes_size = 0;
+
+/* Table 2 of OFT */
+oft_fd* oft_fds = NULL;
+int oft_fds_size = 0;
+
+/* Adds an item to the OFT
+ *
+ * Returns:
+ *   fd - returns the fd for this item in the OFT
+ */
+int oft_add(int inode, int flags){
+	/* Add to table 1 */
+	oft_inode n;
+	int already_exists = FALSE;
+	int i, fd;
+	for (i = 0; i < oft_inodes_size; i++){
+		n = oft_inodes[i];
+		if (n.inum == inode){
+			n.ref++;
+			memcpy(&oft_inodes[i], &n, sizeof(oft_inode));
+			already_exists = TRUE;
+			break;
+		}
+	}
+	
+	if (! already_exists){
+		oft_inodes_size++;
+		oft_inodes = realloc(oft_inodes, oft_inodes_size * sizeof(oft_inode));
+		n.inum = inode;
+		n.ref = 1;
+		n.pending_deletion = FALSE;
+		memcpy(&oft_inodes[oft_inodes_size - 1], &n, sizeof(oft_inode));
+	}
+	
+	/* Add to table 2 */
+	oft_fd f;
+	int fd_good;
+	for (fd = MIN_FD;; fd++){
+		fd_good = TRUE;
+		for (i = 0; i < oft_fds_size; i++){
+			f = oft_fds[i];
+			if (f.fd == fd){
+				fd_good = FALSE;
+				break;
+			}
+		}
+		
+		if (fd_good){
+			break;
+		}
+	}
+	
+	oft_fds_size++;
+	oft_fds = realloc(oft_fds, oft_fds_size * sizeof(oft_fd));
+	f.fd = fd;
+	f.inum = inode;
+	f.flags = flags;
+	memcpy(&oft_fds[oft_fds_size - 1], &f, sizeof(oft_fd));
+	
+	return fd;
+}
+
+/* Removes an item from the OFT. If it is pending deletion and
+ * the last reference, it will be deleted.
+ *
+ * Returns:
+ *   TRUE  - fd was removed from both OFT entries
+ *   FALSE - fd couldn't be found in an OFT entry
+ */
+int oft_remove(int fd){
+	/* Remove from table 2 */
+	oft_fd f;
+	int inode = -1;
+	int i;
+	for (i = 0; i < oft_fds_size; i++){
+		f = oft_fds[i];
+		if (f.fd == fd){
+			inode = f.inum;
+			
+			/* Remove from table by moving rest back + calling realloc */
+			if (i + 1 < oft_fds_size){
+				memmove(&oft_fds[i], &oft_fds[i + 1], sizeof(oft_fd) * (oft_fds_size - i - 1));
+			}
+			oft_fds_size--;
+			oft_fds = realloc(oft_fds, oft_fds_size * sizeof(oft_fd));
+		}
+	}
+	
+	if (inode == -1){
+		ERR(fprintf(stderr, "ERR: oft_remove: requested fd not found\n"));
+		ERR(fprintf(stderr, "  fd: %d\n", fd));
+		return FALSE;
+	}
+	
+	/* Remove from table 1 */
+	oft_inode n;
+	for (i = 0; i < oft_inodes_size; i++){
+		n = oft_inodes[i];
+		if (n.inum == inode){
+			n.ref--;
+			if (n.ref == 0){
+				if (n.pending_deletion == TRUE){
+					del(inode);
+				}
+				/* Remove from table by moving rest back + calling realloc */
+				if (i + 1 < oft_inodes_size){
+					memmove(&oft_inodes[i], &oft_inodes[i + 1], sizeof(oft_inode) * (oft_inodes_size - i - 1));
+				}
+				oft_inodes_size--;
+				oft_inodes = realloc(oft_inodes, oft_inodes_size * sizeof(oft_inode));
+				return TRUE;
+			}
+			memcpy(&oft_inodes[i], &n, sizeof(oft_inode));
+			return TRUE;
+		}
+	}
+	
+	return FALSE;
+}
+
+/* Tries to delete the contents of a file if it isn't
+ * currently in use. If it is, sets the pending deletion flag
+ *
+ * Returns:
+ *   TRUE  - inode was deleted
+ *   FALSE - inode is currently open and is now pending deletion
+ */
+int oft_attempt_delete(int inode){
+	oft_inode n;
+	int i;
+	for (i = 0; i < oft_inodes_size; i++){
+		n = oft_inodes[i];
+		if (n.inum == inode){
+			n.pending_deletion = TRUE;
+			memcpy(&oft_inodes[i], &n, sizeof(oft_inode));
+			return FALSE;
+		}
+	}
+	
+	del(inode);
+	return TRUE;
+}
+
+/* Searches the OFT for the entry associated with fd
+ *
+ * Sets inode and flags if it is found
+ *
+ * Returns:
+ *   TRUE  - fd was found
+ *   FALSE - fd was not found in the open file table
+ */
+int oft_lookup(int fd, int* inode, int* flags){
+	oft_fd f;
+	int i;
+	for (i = 0; i < oft_fds_size; i++){
+		f = oft_fds[i];
+		if (f.fd == fd){
+			*inode = f.inum;
+			*flags = f.flags;
+
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+/* Attempts to remove target_inum from the directory dir_inum
+ *
+ * Returns:
+ *   -EACCES       - a component of the path didn't have rx permissions
+ *   -ENOENT       - a component of the path didn't exist
+ *   -ENOTDIR      - a component of the path wasn't a directory
+ *   -ENAMETOOLONG - a component of the path had a name longer than 256 bytes
+ *   -ENOSPC       - no room in FS for the new file or directory entry
+ *   SUCCESS       - directory was created
+ */
+int sever(int dir_inum, int target_inum){
+	return 1;
+}
 
 /* mkdir() attempts to create a directory named pathname
  *
@@ -1341,18 +1524,3 @@ int intPow(int x, int y){
 
 	return sum;
 }
-
-//Work plan:
-// 1. read_inode, write_inode
-// 2. readdir
-// 3. add to dir, remove from dir, search dir, truncate/delete?
-// 4. namei
-// 5. mknod mkdir
-// 6. open file table
-// 7. open, close, unlink
-
-//Open file table consists of two parts:
-// 1. for each open inode, has number of references, parent inode, pending deletion flag
-// 2. for each fd, has a inode and the type that it was opened with (O_APPND, O_WRONLY, etc)
-
-// no writeback caching

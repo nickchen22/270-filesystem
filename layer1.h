@@ -93,15 +93,15 @@ int init_freelist();
 int init_ibitmap();
 int create_dir_base(int* inode_num, mode_t mode, int uid, int gid, int parent_inum);
 
-int inode_read(int inode_num, inode* readNode);
+int inode_read(int inode_num, inode* read_node);
 int inode_write(int inode_num, inode* modified);
 int inode_free(int inode_num);
-int inode_create(inode* newNode, int* inode_num);
+int inode_create(inode* new_node, int* inode_num);
 
-int data_read(int data_block_num, void* readBuf);
-int data_write(int data_block_num, void* writeBuf);
+int data_read(int data_block_num, void* read_buf);
+int data_write(int data_block_num, void* write_buf);
 int data_free(int data_block_num);
-int data_allocate(void* newData, int* data_block_num);
+int data_allocate(void* new_data, int* data_block_num);
 
 int read_superblock(superblock* sb);
 int write_superblock(superblock* sb);
