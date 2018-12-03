@@ -19,9 +19,12 @@
 int simple_write_read();
 int simple_create();
 int write_read_file();
+int large_directory();
+int delete_nonempty_dir();
+int mknod_test();
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {simple_write_read, simple_create, write_read_file};
+	int (*tests[])() = {simple_write_read, simple_create, write_read_file, delete_nonempty_dir, large_directory, mknod_test};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
 	srand(time(NULL));
@@ -134,3 +137,63 @@ int write_read_file(){
 
 	return TEST_FAILED;
 }
+
+int mknod_test() {
+	printf("%30s", "mknod_test");
+	fflush(stdout);
+
+	int result = mknod("testdir/testnod", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+	if (result < 0)
+		return TEST_FAILED;
+
+	return TEST_PASSED;
+}
+
+int delete_nonempty_dir() {
+	printf("%30s", "DELETE_NONEMPTY_DIR");
+	fflush(stdout);
+
+	int result1 = mkdir("testdir/nonempty", 755);
+	if (result1 < 0) {
+		return TEST_FAILED;
+	}
+
+	int result2 = mknod("testdir/nonempty/test4", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+	if (result2 < 0) {
+		printf("mknod error\n");
+		rmdir("testdir/nonempty");
+		return TEST_FAILED;
+	}
+
+	int result3 = rmdir("nonempty");
+	if (result3 < 1) {
+		return TEST_FAILED;
+	}
+
+	unlink("testdir/nonempty/test4");
+	rmdir("testdir/nonempty");
+	return TEST_PASSED;
+}
+
+int large_directory() {
+	printf("%30s", "FILL_DIRECTORY");
+	fflush(stdout);
+
+	mkdir("testdir/full", 755);
+
+	int num_entries = BLOCK_SIZE;
+
+	int i;
+	for(i = 0; i < num_entries; i++) {
+		char dir[20] = "testdir/full/dir";
+		char end[5];
+		sprintf(dir, "%d", i);
+		strcat(dir, end);
+		int result = mknod(dir, S_IFREG, 0);
+		if (result < 0)
+			return TEST_FAILED;
+	}
+
+	return TEST_PASSED;
+}
+
