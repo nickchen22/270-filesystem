@@ -259,7 +259,7 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset, struc
 	}
 
 	int access_mode = fi->flags & O_ACCMODE;
-	if (access_mode != O_WRONLY && access_mode != O_RDONLY){
+	if (access_mode != O_RDWR && access_mode != O_RDONLY){
 		return -EBADF;
 	}
 	
@@ -279,7 +279,7 @@ static int fs_write(const char *path, const char *buf, size_t size, off_t offset
 	}
 
 	int access_mode = fi->flags & O_ACCMODE;
-	if (access_mode != O_WRONLY && access_mode != O_WRONLY){
+	if (access_mode != O_RDWR && access_mode != O_WRONLY){
 		return -EBADF;
 	}
 	

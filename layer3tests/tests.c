@@ -15,9 +15,10 @@
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 int simple_write_read();
+int simple_create();
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {simple_write_read};
+	int (*tests[])() = {simple_write_read, simple_create};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
 	srand(time(NULL));
@@ -66,7 +67,7 @@ int simple_write_read(){
 	printf("%30s", "SIMPLE_RW");
 	fflush(stdout);
 	
-	int fd = open("test1", O_RDWR | O_CREAT, S_IRWXU);
+	int fd = open("testdir/test1", O_RDWR | O_CREAT, S_IRWXU);
 	const char test_buf[12] = "hello world";
 	char read_buf[12];
 	
@@ -74,9 +75,22 @@ int simple_write_read(){
 	lseek(fd, 0, SEEK_SET);
 	read(fd, read_buf, 12);
 	
-	unlink("test1");
+	unlink("testdir/test1");
 	
 	if (strncmp(read_buf, test_buf, 12) == 0){
+		return TEST_PASSED;
+	}
+	
+	return TEST_FAILED;
+}
+
+int simple_create(){
+	printf("%30s", "SIMPLE_CREATE");
+	fflush(stdout);
+	
+	int fd = open("testdir/test2", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+	
+	if (open("testdir/test2", O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO) >= 0){
 		return TEST_PASSED;
 	}
 	

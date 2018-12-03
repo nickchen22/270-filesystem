@@ -343,8 +343,7 @@ int lots_inodes_free_some() {
 		previous_number = number;
 	}
 	
-	int i;
-	for (int i; i < NUM_FREED; i++) {
+	for (int i = 0; i < NUM_FREED; i++) {
 
 		/* Starts free at inode after root */
 		result = inode_free(i + 2);
