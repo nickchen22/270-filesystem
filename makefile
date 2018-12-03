@@ -25,13 +25,13 @@ nodebug:
 	rm -rf $(TEMP_DIR)
 auto: nodebug
 	./$(NAME_NODEBUG)
-fuse:
+fuse: clean
 	mkdir $(TEMP_DIR)
 	cp *.c *.h $(TEMP_DIR)
 	rm $(TEMP_DIR)/tests.c
 	rm $(TEMP_DIR)/curdebug.h
 	mv $(TEMP_DIR)/nodebug.h $(TEMP_DIR)/curdebug.h
-	$(CC) $(TEMP_DIR)/*.c $(LIBRARIES) -o $(NAME_FUSE)
+	$(CC) `pkg-config fuse --cflags --libs` $(TEMP_DIR)/*.c $(LIBRARIES) -o $(NAME_FUSE)
 	rm -rf $(TEMP_DIR)
 
 clean:

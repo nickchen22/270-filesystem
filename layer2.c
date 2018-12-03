@@ -835,7 +835,7 @@ int read_dir_page(int inum, dirblock* d, int page, int* entries, int* last){
 	if (ret != *entries * sizeof(dir_ent)){
 		ERR(fprintf(stderr, "ERR: read_dir_page: read_i failed\n"));
 		ERR(fprintf(stderr, "  inum:   %d\n", inum));
-		ERR(fprintf(stderr, "  buf:    %d\n", d));
+		ERR(fprintf(stderr, "  d:    %p\n", d));
 		ERR(fprintf(stderr, "  offset: %d\n", page * BLOCK_SIZE));
 		ERR(fprintf(stderr, "  ret:    %d\n", ret));
 		return ret;

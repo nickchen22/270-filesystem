@@ -7,7 +7,7 @@
 #include "layer1.h"
 #include "layer2.h"
 
-static void *fs_init(struct fuse_conn_info *conn, struct fuse_config *cfg){
+static void *fs_init(struct fuse_conn_info *conn){
 	struct fuse_context* context = fuse_get_context();
 	mkfs(400, context->uid, context->gid);
 	return NULL;
@@ -41,7 +41,7 @@ static int fs_getattr(const char *path, struct stat *stbuf){
 static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi){
 	struct fuse_context* context = fuse_get_context();
 	
-	int parent_inum, target_inum, index, ret, read, write, exec;
+	int parent_inum, target_inum, index, ret, read, write, exec, i;
 	ret = namei(path, context->uid, context->gid, &parent_inum, &target_inum, &index);
 	if (ret != SUCCESS){
 		return ret;
@@ -69,7 +69,7 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 		for (i = 0; i < entries; i++){
 			s = get_stat(d.dir_ents[i].inode_num);
 			
-			if (filler(buf, d.dir_ents[i].name, &s, 0, 0)){
+			if (filler(buf, d.dir_ents[i].name, &s, 0)){
 				return 0;
 			}
 		}
@@ -213,17 +213,17 @@ static int fs_open(const char *path, struct fuse_file_info *fi){
 	/* Check for permissions */
 	check_permissions(target_inum, context->uid, context->gid, &read, &write, &exec);
 	int access_mode = fi->flags & O_ACCMODE;
-	if (acces_mode == O_RDONLY){
+	if (access_mode == O_RDONLY){
 		if (!read){
 			return -EACCES;
 		}
 	}
-	else if (acces_mode == O_WRONLY){
+	else if (access_mode == O_WRONLY){
 		if (!write){
 			return -EACCES;
 		}
 	}
-	else if (acces_mode == O_RDWR){
+	else if (access_mode == O_RDWR){
 		if (!read || !write){
 			return -EACCES;
 		}
@@ -235,11 +235,14 @@ static int fs_open(const char *path, struct fuse_file_info *fi){
 	/* Check that it isn't a directory */
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
-	if (S_ISDIR(my_inode.mode) && (access_mode == O_WRONLY || acces_mode == O_RDWR)){
+	if (S_ISDIR(my_inode.mode) && (access_mode == O_WRONLY || access_mode == O_RDWR)){
 		return -EISDIR;
 	}
 
-	fi->fh = oft_add(target_inum, fi->flags);
+	int fh = oft_add(target_inum, fi->flags);
+	printf("OPEN: FH SET TO %d\n", fh);
+	
+	fi->fh = fh;
 	
 	return 0;
 }
@@ -250,17 +253,17 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset, struc
 	}
 	
 	int fd = fi->fh;
-	int flags, inode;
-	if (oft_lookup(fd, &flags, &inode) == FALSE){
+	int flags, inum;
+	if (! oft_lookup(fd, &inum, &flags)){
 		return -EBADF;
 	}
 
 	int access_mode = fi->flags & O_ACCMODE;
-	if (acces_mode != O_WRONLY && access_mode != O_RDONLY){
+	if (access_mode != O_WRONLY && access_mode != O_RDONLY){
 		return -EBADF;
 	}
 	
-	return read_i(inode, buf, offset, size);
+	return read_i(inum, (void*)buf, offset, size);
 }
 
 static int fs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi){
@@ -269,14 +272,14 @@ static int fs_write(const char *path, const char *buf, size_t size, off_t offset
 	}
 	
 	int fd = fi->fh;
-	int flags, inode, ret;
+	int flags, inum, ret;
 	off_t actual_offset = offset;
-	if (oft_lookup(fd, &flags, &inode) == FALSE){
+	if (! oft_lookup(fd, &inum, &flags)){
 		return -EBADF;
 	}
 
 	int access_mode = fi->flags & O_ACCMODE;
-	if (acces_mode != O_WRONLY && access_mode != O_WRONLY){
+	if (access_mode != O_WRONLY && access_mode != O_WRONLY){
 		return -EBADF;
 	}
 	
@@ -290,7 +293,8 @@ static int fs_write(const char *path, const char *buf, size_t size, off_t offset
 		actual_offset = my_inode.size;
 	}
 	
-	return write_i(inode, buf, actual_offset, size);
+	printf("WRITE: INUM IS %d\n", inum);
+	return write_i(inum, (void*)buf, actual_offset, size);
 }
 
 static int fs_release(const char *path, struct fuse_file_info *fi){
@@ -298,7 +302,7 @@ static int fs_release(const char *path, struct fuse_file_info *fi){
 		return -EBADF;
 	}
 
-	oft_delete(fi->fh);
+	oft_remove(fi->fh);
 	
 	return 0;
 }
@@ -317,7 +321,6 @@ static struct fuse_operations fs_oper = {
 	.rmdir		= fs_rmdir,
 	.truncate	= fs_truncate,
 	.open		= fs_open,
-	.create 	= fs_create,
 	.read		= fs_read,
 	.write		= fs_write,
 	.release	= fs_release,
