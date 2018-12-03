@@ -2,7 +2,7 @@
 #define LAYER0_H
 
 #define UNINITIALIZED_FD -1
-#define NUM_BLOCKS 5000
+#define NUM_BLOCKS 2000000
 
 /* Representation of the disk in core memory */
 extern int layer0_fd;

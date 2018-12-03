@@ -55,11 +55,8 @@ int mkfs(int blocks, int root_uid, int root_gid){
 	 * In the meantime, hardcode restriction to ~1 GB filesystem.
 	 * Linux command df tells us how much storage space is available
 	 */
-	if (blocks > MAX_FS_SIZE){
-		//blocks = MAX_FS_SIZE;
-	}
-	
 	layer0_fd = open("/dev/vde", O_RDWR);
+	printf("----OPEN RESULT = %d------\n", layer0_fd);
 	if (layer0_fd == UNINITIALIZED_FD){
 		ERR(perror(NULL));
 		return UNEXPECTED_ERROR;
@@ -261,7 +258,7 @@ int init_freelist(){
 		/* Populate it with its free blocks */
 		for (j = 0; j < ADDR_PER_NODE && node_loc + j + 1 <= num_data_blocks; j++){
 			cur.addr[j] = node_loc + j + 1;
-			
+
 			DEBUG(DB_FREELIST, printf("  addr[%d]: %d\n", j, node_loc + j + 1));
 		}
 		
@@ -425,7 +422,9 @@ int inode_write(int inode_num, inode* modified){
 	DEBUG(DB_INODEWRITE, printf("  total_block_offset:            %d\n", total_block_offset));
 	DEBUG(DB_INODEWRITE, printf("  &block:                        %p\n", &block));
 	DEBUG(DB_INODEWRITE, printf("  &block.inodes[inode_in_block]: %p\n", &block.inodes[inode_in_block]));
-	
+
+	time_t now = time(NULL);
+	modified->mod_time = now;
 	memcpy(&block.inodes[inode_in_block], modified, sizeof(inode));
 	
 	return write_block(total_block_offset, &block);

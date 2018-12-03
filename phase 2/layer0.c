@@ -36,7 +36,7 @@ int write_block(int blocknum, void* write_buf){
 		return BUF_NULL;
 	}
 	
-	off_t write_start = blocknum * BLOCK_SIZE;
+	off_t write_start = (off_t)blocknum * BLOCK_SIZE;
 	
 	DEBUG(DB_WRITEBLOCK, printf("DEBUG: write_block: about to write\n"));
 	DEBUG(DB_WRITEBLOCK, printf("  layer0_fd:   %d\n", layer0_fd));
@@ -84,7 +84,7 @@ int read_block(int blocknum, void* read_buf){
 		return BUF_NULL;
 	}
 	
-	off_t read_start = blocknum * BLOCK_SIZE;
+	off_t read_start = (off_t)blocknum * BLOCK_SIZE;
 	
 	DEBUG(DB_READBLOCK, printf("DEBUG: read_block: about to read\n"));
 	DEBUG(DB_READBLOCK, printf("  layer0_fd:   %d\n", layer0_fd));

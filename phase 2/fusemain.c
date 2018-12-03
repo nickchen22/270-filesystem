@@ -9,12 +9,14 @@
 
 static void *fs_init(struct fuse_conn_info *conn){
 	layer0_fd = open("/dev/vde", O_RDWR);
+	printf("----OPEN RESULT = %d------\n", layer0_fd);
+	fflush(stdout);
+	
 	return NULL;
 }
 
 static void fs_destroy(){
 	close(layer0_fd);
-	return NULL;
 }
 
 static int fs_getattr(const char *path, struct stat *stbuf){
@@ -152,6 +154,10 @@ static int fs_rmdir(const char *path){
 	ret = inode_read(target_inum, &my_inode);
 	if (! S_ISDIR(my_inode.mode)){
 		return -ENOTDIR;
+	}
+	
+	if (my_inode.size > 2 * sizeof(dir_ent)){
+		return -ENOTEMPTY;
 	}
 	
 	/* Check for write permissions on parent directory */

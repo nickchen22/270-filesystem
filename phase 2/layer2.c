@@ -200,6 +200,7 @@ struct stat get_stat(int inum){
 	s.st_uid = my_inode.uid;
 	s.st_gid = my_inode.gid;
 	s.st_size = my_inode.size;
+	s.st_mtime = my_inode.mod_time;
 	
 	return s;
 }
@@ -643,7 +644,7 @@ int remove_dirent(int inum, int index){
 	}
 	
 	/* Update the size of the directory */
-	int new_size = my_inode.size - sizeof(dir_ent);
+	off_t new_size = my_inode.size - (off_t)sizeof(dir_ent);
 	if (new_size % BLOCK_SIZE == 0 && new_size != 0){
 		new_size = new_size - DIRENTS_REMAINDER;
 	}
@@ -685,7 +686,7 @@ int add_dirent(int inum, dir_ent* d){
 	}
 	
 	off_t write_offset = my_inode.size;
-	if ((my_inode.size + sizeof(dir_ent)) / BLOCK_SIZE > my_inode.size / BLOCK_SIZE){
+	if ((my_inode.size + (off_t)sizeof(dir_ent)) / BLOCK_SIZE > my_inode.size / BLOCK_SIZE){
 		write_offset += DIRENTS_REMAINDER;
 	}
 
@@ -749,15 +750,18 @@ int trunc_fs(int inum, off_t offset){
 	}
 
 	/* Shorten the file */
-	int buf_size = my_inode.size - offset;
+	off_t buf_size = BLOCK_SIZE * 10;
+	off_t len_written = 0;
+	off_t max_written = my_inode.size - offset;
 
-	uint8_t* buf = malloc(buf_size);
-	
+	uint8_t buf[buf_size];
 	memset(buf, 0, buf_size);
 	
-	write_i(inum, buf, offset, buf_size);
+	while(len_written < max_written){
+		write_i(inum, buf, offset + len_written, buf_size);
+		len_written += buf_size;
+	}
 
-	free(buf);
 	my_inode.size = offset;
 	inode_write(inum, &my_inode);
 	
@@ -952,7 +956,7 @@ int read_i(int inum, void* buf, off_t offset, size_t size){
 	}
 	
 	/* Consider the length we will read */
-	int truncated_size = MIN(my_inode.size - offset, size);
+	off_t truncated_size = MIN(my_inode.size - offset, size);
 	if (truncated_size == 0){
 		return 0;
 	}
@@ -1034,7 +1038,7 @@ int write_i(int inum, void* buf, off_t offset, size_t size){
 		return ret;
 	}
 
-	int original_size = my_inode.size;
+	off_t original_size = my_inode.size;
 	
 	/* Calculate writing start and end */
 	int start_block = offset / BLOCK_SIZE;
@@ -1154,7 +1158,7 @@ int write_i(int inum, void* buf, off_t offset, size_t size){
 		
 		write_start = 0;
 		write_size = BLOCK_SIZE;
-		
+
 		/* Update and write inode */
 		my_inode.size = MAX(original_size, offset + bytes_written);
 		my_inode.mode &= (0xffff ^ (S_ISUID | S_ISGID));
