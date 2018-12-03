@@ -9,7 +9,7 @@
 
 static void *fs_init(struct fuse_conn_info *conn){
 	struct fuse_context* context = fuse_get_context();
-	mkfs(400, context->uid, context->gid);
+	mkfs(40000, context->uid, context->gid);
 	return NULL;
 }
 
@@ -292,9 +292,13 @@ static int fs_write(const char *path, const char *buf, size_t size, off_t offset
 		}
 		actual_offset = my_inode.size;
 	}
+
+	ret = write_i(inum, (void*)buf, actual_offset, size);
+	if (ret == DATA_FULL){
+		return -ENOSPC;
+	}
 	
-	printf("WRITE: INUM IS %d\n", inum);
-	return write_i(inum, (void*)buf, actual_offset, size);
+	return ret;
 }
 
 static int fs_release(const char *path, struct fuse_file_info *fi){

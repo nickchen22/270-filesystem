@@ -11,14 +11,17 @@
 #define TEST_FAILED 0
 #define TEST_PASSED 1
 
+#define BLOCK_SIZE 4096
+
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 int simple_write_read();
 int simple_create();
+int write_read_file();
 
 int main(int argc, const char **argv){
-	int (*tests[])() = {simple_write_read, simple_create};
+	int (*tests[])() = {simple_write_read, simple_create, write_read_file};
 	int max_test = sizeof(tests) / sizeof(tests[0]);
 	int num_tests = MAX(max_test, argc - 1);
 	srand(time(NULL));
@@ -94,5 +97,35 @@ int simple_create(){
 		return TEST_PASSED;
 	}
 	
+	unlink("testdir/test2");
+	
+	return TEST_FAILED;
+}
+
+int write_read_file(){
+	printf("%30s", "WRITE_READ_FILE_RAND");
+	fflush(stdout);
+	
+	int size = BLOCK_SIZE * (rand() % 1000);
+	size += rand() % BLOCK_SIZE;
+	
+	char expected_result[size];
+	char actual_result[size];
+	
+	int i;
+	for (i = 0; i < size; i++){
+		expected_result[i] = rand() % 256;
+	}
+	
+	int fd = open("testdir/test3", O_RDWR | O_CREAT | O_APPEND, S_IRWXU | S_IRWXG | S_IRWXO);
+	write(fd, expected_result, size);
+	int fd2 = open("testdir/test3", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+	read(fd2, actual_result, size);
+	unlink("testdir/test3");
+	
+	if (memcmp(expected_result, actual_result, size) == 0){
+		return TEST_PASSED;
+	}
+
 	return TEST_FAILED;
 }
