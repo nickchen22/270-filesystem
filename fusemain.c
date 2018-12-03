@@ -1,4 +1,4 @@
-#define FUSE_USE_VERSION 31
+#define FUSE_USE_VERSION 26
 
 #include <fuse.h>
 #include <stdio.h>
@@ -13,7 +13,7 @@ static void *fs_init(struct fuse_conn_info *conn, struct fuse_config *cfg){
 	return NULL;
 }
 
-static int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi){
+static int fs_getattr(const char *path, struct stat *stbuf){
 	struct fuse_context* context = fuse_get_context();
 	
 	int parent_inum, target_inum, index, ret, read, write, exec;
@@ -38,7 +38,7 @@ static int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_inf
 	return 0;
 }
 
-static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags){
+static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi){
 	struct fuse_context* context = fuse_get_context();
 	
 	int parent_inum, target_inum, index, ret, read, write, exec;
@@ -54,10 +54,11 @@ static int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 	/* Check that it is a directory */
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
-	if ((my_inode.mode & S_IFDIR) == 0){
+	if (! S_ISDIR(my_inode.mode)){
 		return -ENOTDIR;
 	}
 	
+	/* Scan directory to populate the buffer */
 	int last = FALSE;
 	int entries = 0;
 	struct stat s;
@@ -113,7 +114,7 @@ static int fs_unlink(const char *path){
 	/* Check that it isn't a directory */
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
-	if ((my_inode.mode & S_IFDIR) != 0){
+	if (S_ISDIR(my_inode.mode)){
 		return -ENOTDIR;
 	}
 	
@@ -145,7 +146,7 @@ static int fs_rmdir(const char *path){
 	/* Check that it is a directory */
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
-	if ((my_inode.mode & S_IFDIR) == 0){
+	if (! S_ISDIR(my_inode.mode)){
 		return -ENOTDIR;
 	}
 	
@@ -161,7 +162,7 @@ static int fs_rmdir(const char *path){
 	return 0;
 }
 
-static int fs_truncate(const char *path, off_t size, struct fuse_file_info *fi){
+static int fs_truncate(const char *path, off_t size){
 	struct fuse_context* context = fuse_get_context();
 	
 	int parent_inum, target_inum, index, ret, read, write, exec;
@@ -177,7 +178,7 @@ static int fs_truncate(const char *path, off_t size, struct fuse_file_info *fi){
 	/* Check that it isn't a directory */
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
-	if ((my_inode.mode & S_IFDIR) != 0){
+	if (S_ISDIR(my_inode.mode)){
 		return -EISDIR;
 	}
 	
@@ -234,7 +235,7 @@ static int fs_open(const char *path, struct fuse_file_info *fi){
 	/* Check that it isn't a directory */
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
-	if (((my_inode.mode & S_IFDIR) != 0) && (access_mode == O_WRONLY || acces_mode == O_RDWR)){
+	if (S_ISDIR(my_inode.mode) && (access_mode == O_WRONLY || acces_mode == O_RDWR)){
 		return -EISDIR;
 	}
 

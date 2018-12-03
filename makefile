@@ -13,7 +13,7 @@ debug:
 	mkdir $(TEMP_DIR)
 	cp *.c *.h $(TEMP_DIR)
 	rm $(TEMP_DIR)/fusemain.c
-	$(CC) $(TEMP_DIR)/*.c $(LIBRARIES) -o $(NAME_NODEBUG)
+	$(CC) $(TEMP_DIR)/*.c $(LIBRARIES) -o $(NAME)
 	rm -rf $(TEMP_DIR)
 nodebug:
 	mkdir $(TEMP_DIR)
