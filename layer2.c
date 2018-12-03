@@ -5,7 +5,6 @@
 
 //TODO: not currently bothering with link count, dev, times
 //TODO: assuming file paths do not contain ., .., or a / at the end
-//TODO: rmdir? <- might be good to make a layer 2 command that does most of this?
 //TODO: make sure writeback caching disabled
 
 /* Table 1 of OFT */

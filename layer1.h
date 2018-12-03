@@ -58,6 +58,8 @@ typedef struct __attribute__((__packed__)) superblock {
 	uint8_t padding[0];
 } superblock;
 
+extern superblock* cached_superblock;
+
 typedef struct __attribute__((__packed__)) inode {
 	mode_t mode;
 	uint32_t links; //currently unused

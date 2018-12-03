@@ -3,6 +3,8 @@
 #include "layer1.h"
 #include "layer2.h"
 
+superblock* cached_superblock = NULL;
+
 /* Initializes a filesystem for use by other functions by doing the following:
  * - Allocates min(MAX_FS_SIZE, blocks) * BLOCK_SIZE bytes to the filesystem
  * - Updates global variables to point to the filesystem
@@ -823,6 +825,13 @@ int read_superblock(superblock* sb){
 		return BUF_NULL;
 	}
 	
+	/* Read the cached superblock, if it exists */
+	if (cached_superblock != NULL){
+		DEBUG(DB_READSB, printf("DEBUG: read_superblock: read a cached superblock\n"));
+		memcpy(sb, cached_superblock, sizeof(superblock));
+		return SUCCESS;
+	}
+	
 	uint8_t temp_buffer[BLOCK_SIZE * SUPERBLOCK_SIZE];
 	
 	/* Read the superblock into temp_buffer, one block at a time */
@@ -863,6 +872,13 @@ int write_superblock(superblock* sb){
 		ERR(fprintf(stderr, "  sb: %p\n", sb));
 		return BUF_NULL;
 	}
+	
+	/* Update the cached superblock */
+	if (cached_superblock == NULL){
+		DEBUG(DB_WRITESB, printf("DEBUG: write_superblock: created a cached superblock\n"));
+		cached_superblock = malloc(sizeof(superblock));
+	}
+	memcpy(cached_superblock, sb, sizeof(superblock));
 	
 	/* Put the suberblock into a block-size buffer */
 	uint8_t temp_buffer[BLOCK_SIZE * SUPERBLOCK_SIZE];
