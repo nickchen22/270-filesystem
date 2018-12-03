@@ -3,6 +3,6 @@
 
 /* Current debug and error status */
 #define CUR_DEBUG NO_DEBUG
-#define CUR_ERR SHOW_ERRORS
+#define CUR_ERR SUPPRESS_ERRORS
 
 #endif
