@@ -94,6 +94,7 @@ int simple_create(){
 	int fd = open("testdir/test2", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
 	
 	if (open("testdir/test2", O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO) >= 0){
+		unlink("testdir/test2");
 		return TEST_PASSED;
 	}
 	
@@ -106,7 +107,7 @@ int write_read_file(){
 	printf("%30s", "WRITE_READ_FILE_RAND");
 	fflush(stdout);
 	
-	int size = BLOCK_SIZE * (rand() % 1000);
+	int size = BLOCK_SIZE * (rand() % 1500);
 	size += rand() % BLOCK_SIZE;
 	
 	char expected_result[size];
@@ -118,10 +119,14 @@ int write_read_file(){
 	}
 	
 	int fd = open("testdir/test3", O_RDWR | O_CREAT | O_APPEND, S_IRWXU | S_IRWXG | S_IRWXO);
+	//int fd = open("testdir/test3", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
 	write(fd, expected_result, size);
 	int fd2 = open("testdir/test3", O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
 	read(fd2, actual_result, size);
 	unlink("testdir/test3");
+	close(fd);
+	close(fd2);
+	
 	
 	if (memcmp(expected_result, actual_result, size) == 0){
 		return TEST_PASSED;

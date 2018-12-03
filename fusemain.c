@@ -115,7 +115,7 @@ static int fs_unlink(const char *path){
 	inode my_inode;
 	ret = inode_read(target_inum, &my_inode);
 	if (S_ISDIR(my_inode.mode)){
-		return -ENOTDIR;
+		return -EISDIR;
 	}
 	
 	/* Check for write permissions on parent directory */
@@ -240,7 +240,6 @@ static int fs_open(const char *path, struct fuse_file_info *fi){
 	}
 
 	int fh = oft_add(target_inum, fi->flags);
-	printf("OPEN: FH SET TO %d\n", fh);
 	
 	fi->fh = fh;
 	
@@ -253,7 +252,7 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset, struc
 	}
 	
 	int fd = fi->fh;
-	int flags, inum;
+	int flags, inum, ret;
 	if (! oft_lookup(fd, &inum, &flags)){
 		return -EBADF;
 	}
@@ -263,7 +262,9 @@ static int fs_read(const char *path, char *buf, size_t size, off_t offset, struc
 		return -EBADF;
 	}
 	
-	return read_i(inum, (void*)buf, offset, size);
+	ret = read_i(inum, (void*)buf, offset, size);
+	
+	return ret;
 }
 
 static int fs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi){
